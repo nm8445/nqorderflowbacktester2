@@ -1,0 +1,25 @@
+# Environment
+.env
+
+# Data files (can be large)
+data/
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code memory
+.claude/
