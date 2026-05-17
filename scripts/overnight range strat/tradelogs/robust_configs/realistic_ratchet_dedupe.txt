@@ -1,0 +1,49 @@
+========================================================================================================================================================================================================
+REALISTIC DEDUPE — pure_ratchet exits
+========================================================================================================================================================================================================
+
+Entry config: B2 X=0.75 N=15 D=70 strict=True BAND_K=0.25
+            + conf_N=5 conf_D=75 HALF, chained Mode 1
+Exit config:  pure_ratchet  ymult=2.5 gmult=2.0 gbase=200.0 gdecay=0.0
+              red_drift=0.45  ATR_y_len=14  ATR_g_len=13  force_close=16:00
+
+DEDUPE BASED ON ACTUAL RATCHET EXIT TIMES (not 1xATR exit times)
+
+
+--- IN-SAMPLE ---
+  pre-dedupe candidates       : 1134
+  after realistic ratchet dedupe:  604  (53.3%)
+  PURE_RATCHET (real dedupe)      n= 604  L=462/S=142  total= +6537.8  L_t=+5070.0  S_t=+1467.8  WR=53.1%  PF= 1.36  Sh=+1.93  MDD=   -736
+  exit reason breakdown:
+    EOD             n=   1  total=   +26.0  mean=+26.00  WR=100.0%  med_bars= 8
+    FORCE_CLOSE     n= 432  total=+17040.2  mean=+39.45  WR=69.7%  med_bars= 9
+    SL_YELLOW       n= 162  total=-13606.8  mean=-83.99  WR= 6.2%  med_bars= 8
+    TP_GREEN        n=   9  total= +3078.2  mean=+342.03  WR=100.0%  med_bars=11
+
+--- OUT-OF-SAMPLE ---
+  pre-dedupe candidates       :  215
+  after realistic ratchet dedupe:  131  (60.9%)
+  PURE_RATCHET (real dedupe)      n= 131  L= 98/S= 33  total= +1970.5  L_t=+1329.5  S_t= +641.0  WR=51.1%  PF= 1.44  Sh=+2.19  MDD=   -558
+  exit reason breakdown:
+    FORCE_CLOSE     n=  97  total= +3159.8  mean=+32.57  WR=60.8%  med_bars=12
+    SL_YELLOW       n=  30  total= -2597.5  mean=-86.58  WR=13.3%  med_bars= 6
+    TP_GREEN        n=   4  total= +1408.2  mean=+352.06  WR=100.0%  med_bars=11
+
+========================================================================================================================================================================================================
+COMBINED IS+OOS  (n=735)
+========================================================================================================================================================================================================
+  PURE_RATCHET (real dedupe)      n= 735  L=560/S=175  total= +8508.2  L_t=+6399.5  S_t=+2108.8  WR=52.8%  PF= 1.37  Sh=+1.99  MDD=   -736
+
+========================================================================================================================================================================================================
+COMPARISON — what we previously reported vs realistic dedupe
+========================================================================================================================================================================================================
+
+Previous (dedupe-by-1xATR-exits, INFLATED count):
+  IS  : n=813   total +7,358   PF 1.31   Sharpe 1.67
+  OOS : n=164   total +1,719   PF 1.31   Sharpe 1.70
+  Combined: n=977  total +9,076  PF 1.31
+
+Realistic (dedupe-by-ratchet-exits):
+  IS  : n=604  total=+6538  PF 1.36  Sharpe +1.93
+  OOS : n=131  total=+1970  PF 1.44  Sharpe +2.19
+  Combined: n=735  total=+8508  PF 1.37

@@ -1,0 +1,63 @@
+========================================================================================================================================================================================================
+REAL-TIME COMBINED B2 + VA-REVERT (no lookahead)
+========================================================================================================================================================================================================
+Rules:
+  - Pre-bias-set: VA-revert eligible (chained Mode 1, stop-after-TP)
+  - On bias-set (3 consec 5-min closes outside range):
+      * Force-close any open VA-revert at that bar's close
+      * Switch to B2 phase
+  - Post-bias-set: B2 eligible (locked filtered V2 + mart-fc-only)
+  - One position at a time; no overlap
+
+B2 config: locked filtered V2 K=0.8 lock=0.45 + mart-fc-only + hours 9-14 + drop POS+SHORT
+VA-revert config: N=20, sig_D=0, conf_D=150, sl=1.0, hours=[9, 11, 12], cap=75.0%
+
+Trade type counts under real-time rule:
+        n      pnl     wr  dollars_nq
+type                                 
+B2    623  7278.04  60.35    145561.0
+VA    125   759.73  49.60     15195.0
+
+Trade outcomes under real-time rule (by type):
+                       n       pnl
+type outcome                      
+B2   EOD               1     26.00
+     FORCE_CLOSE     192  -1613.25
+     SL_TRAIL        180 -14798.25
+     TP_FIXED        250  23663.54
+VA   FORCE_BIAS_SET   14    513.50
+     SL               41  -1692.77
+     TP               70   1939.00
+
+Totals (period-split):
+  IS   n= 616  total= +4878.8 pts  ($   +97,577 NQ)   B2-part:  +4967.5   VA-part:    -88.7
+  OOS  n= 132  total= +3158.9 pts  ($   +63,179 NQ)   B2-part:  +2310.6   VA-part:   +848.4
+  ALL  n= 748  total= +8037.8 pts  ($  +160,756 NQ)   B2-part:  +7278.0   VA-part:   +759.7
+
+Per-year breakdown ($ NQ):
+      n_total  n_va  n_b2  pnl_total  pnl_b2  pnl_total_nq  pnl_b2_nq
+year                                                                 
+2020        5     2     3       48.7    77.0         974.0     1540.0
+2021      121    26    95      754.4   856.4       15088.0    17128.0
+2022      154    28   126     2073.4  2114.7       41468.0    42294.0
+2023      197    27   170      660.3   700.3       13206.0    14006.0
+2024      139    14   125     1342.0  1219.2       26840.0    24384.0
+2025       98    25    73     1376.6   742.3       27532.0    14846.0
+2026       34     3    31     1782.3  1568.3       35646.0    31366.0
+
+========================================================================================================================================================================================================
+COMPARISON TO STANDALONE STRATEGIES
+========================================================================================================================================================================================================
+  Standalone B2 (mart-scaled, no VA):  +7956.9 pts  ($  +159,139 NQ)  n=650
+  Combined real-time (B2 + VA):        +8037.8 pts  ($  +160,756 NQ)  n=748
+  DELTA (combined - B2-only):            +80.8 pts  ($    +1,617 NQ)
+
+Notes:
+  - Combined will USE FEWER B2 trades than standalone (some get suppressed because
+    a VA-revert was live when B2 bias set, OR because day_done after VA TP).
+  - Combined ADDS VA-revert trades on days where VA fired before bias was set.
+
+  B2 trades taken in combined: 623  vs standalone: 650  (diff: -27)
+
+  VA-revert outcomes:  TP=70   SL=41   held->close=0   FORCE_BIAS_SET=14
+  Force-bias-set VA closes pnl: +513.5 pts ($+10,270 NQ)

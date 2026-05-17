@@ -1,0 +1,43 @@
+========================================================================================================================================================================================================
+LOCKED FILTERED CONFIG — ATR LOOKAHEAD AUDIT  (LEAKY vs FIXED)
+========================================================================================================================================================================================================
+V2 K=0.8 lock=0.45 + mart-FC + hours 9-14 + drop POS+SHORT
+LEAKY = init_atr_y uses bar CONTAINING entry_ts (has 15 min of future data baked in)
+FIXED = step back until bar's close <= entry_ts (no future leak)
+
+
+-- ATR mode: LEAKY --
+  NO-MART (raw 1-contract):
+    IS   n=540 WR= 61.3% PF= 1.34 total= +5023.8 pts ($+100,476 NQ / $+10,048 MNQ) MDD= -713.6
+    OOS  n=110 WR= 60.0% PF= 1.40 total= +1469.8 pts ($ +29,396 NQ / $ +2,940 MNQ) MDD= -511.4
+    ALL  n=650 WR= 61.1% PF= 1.35 total= +6493.6 pts ($+129,872 NQ / $+12,987 MNQ) MDD= -713.6
+  WITH MART-FC-ONLY (scaled PnL):
+    IS   n=540 WR= 61.3% PF= 1.33 total= +5732.2 pts ($+114,644 NQ / $+11,464 MNQ) MDD= -844.8
+    OOS  n=110 WR= 60.0% PF= 1.54 total= +2224.7 pts ($ +44,495 NQ / $ +4,449 MNQ) MDD= -778.9
+    ALL  n=650 WR= 61.1% PF= 1.37 total= +7956.9 pts ($+159,139 NQ / $+15,914 MNQ) MDD= -844.8
+
+-- ATR mode: FIXED --
+  NO-MART (raw 1-contract):
+    IS   n=545 WR= 60.9% PF= 1.30 total= +4482.2 pts ($ +89,645 NQ / $ +8,964 MNQ) MDD= -699.3
+    OOS  n=111 WR= 58.6% PF= 1.25 total=  +958.1 pts ($ +19,163 NQ / $ +1,916 MNQ) MDD= -538.3
+    ALL  n=656 WR= 60.5% PF= 1.29 total= +5440.4 pts ($+108,808 NQ / $+10,881 MNQ) MDD= -699.3
+  WITH MART-FC-ONLY (scaled PnL):
+    IS   n=545 WR= 60.9% PF= 1.31 total= +5285.7 pts ($+105,713 NQ / $+10,571 MNQ) MDD= -913.5
+    OOS  n=111 WR= 58.6% PF= 1.42 total= +1786.7 pts ($ +35,734 NQ / $ +3,573 MNQ) MDD= -805.8
+    ALL  n=656 WR= 60.5% PF= 1.33 total= +7072.4 pts ($+141,447 NQ / $+14,145 MNQ) MDD= -913.5
+
+========================================================================================================================================================================================================
+SUMMARY DELTA (LEAKY - FIXED)
+========================================================================================================================================================================================================
+
+  IS:
+    no-mart  LEAKY n=540 PF=1.34 total= +5023.8 pts   FIXED n=545 PF=1.30 total= +4482.2 pts   ΔPF=-0.039  Δtotal=-541.6 pts
+    mart     LEAKY n=540 PF=1.33 total= +5732.2 pts   FIXED n=545 PF=1.31 total= +5285.7 pts   ΔPF=-0.025  Δtotal=-446.5 pts
+
+  OOS:
+    no-mart  LEAKY n=110 PF=1.40 total= +1469.8 pts   FIXED n=111 PF=1.25 total=  +958.1 pts   ΔPF=-0.151  Δtotal=-511.7 pts
+    mart     LEAKY n=110 PF=1.54 total= +2224.7 pts   FIXED n=111 PF=1.42 total= +1786.7 pts   ΔPF=-0.123  Δtotal=-438.0 pts
+
+  ALL:
+    no-mart  LEAKY n=650 PF=1.35 total= +6493.6 pts   FIXED n=656 PF=1.29 total= +5440.4 pts   ΔPF=-0.062  Δtotal=-1053.2 pts
+    mart     LEAKY n=650 PF=1.37 total= +7956.9 pts   FIXED n=656 PF=1.33 total= +7072.4 pts   ΔPF=-0.043  Δtotal=-884.6 pts

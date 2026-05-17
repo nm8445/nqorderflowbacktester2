@@ -1,0 +1,171 @@
+TRADE LOG - LONG POSITIONS
+================================================================================
+Columns: Trade# | Type | Date/Time | Signal | Price (USD) | Size | Net P&L | Favorable Excursion | Adverse Excursion | Cumulative P&L
+================================================================================
+
+Trade #155 (Long)
+  Entry: May 06, 2026, 19:00 | Long      | 28,690.25 USD
+  Exit:  May 07, 2026, 03:00 | TP Green  | 28,760.50 USD
+  Size: 2 / 1.15 M USD | Net P&L: +2,810 USD (+0.24%) | Favorable: 4,600 USD (0.40%) | Adverse: -2,130 USD (-0.19%) | Cumulative: 68,220 USD (68.22%)
+
+Trade #154 (Long)
+  Entry: May 05, 2026, 19:00 | Long      | 28,367.00 USD
+  Exit:  May 05, 2026, 20:00 | SL Yellow | 28,295.75 USD
+  Size: 1 / 567.34 K USD | Net P&L: -1,425 USD (-0.25%) | Favorable: 200 USD (0.04%) | Adverse: -1,735 USD (-0.31%) | Cumulative: 65,410 USD (65.41%)
+
+Trade #153 (Long)
+  Entry: May 04, 2026, 19:00 | Long      | 27,754.25 USD
+  Exit:  May 05, 2026, 00:00 | TP Green  | 27,842.00 USD
+  Size: 1 / 555.09 K USD | Net P&L: +1,755 USD (+0.32%) | Favorable: 2,120 USD (0.38%) | Adverse: -450 USD (-0.08%) | Cumulative: 66,835 USD (66.83%)
+
+Trade #152 (Long)
+  Entry: May 03, 2026, 19:00 | Long      | 27,824.25 USD
+  Exit:  May 03, 2026, 22:40 | TP Green  | 27,928.75 USD
+  Size: 1 / 556.49 K USD | Net P&L: +2,090 USD (+0.38%) | Favorable: 2,395 USD (0.43%) | Adverse: -480 USD (-0.09%) | Cumulative: 65,080 USD (65.08%)
+
+Trade #151 (Long)
+  Entry: Apr 30, 2026, 19:00 | Long      | 27,595.25 USD
+  Exit:  May 01, 2026, 02:20 | SL Yellow | 27,601.75 USD
+  Size: 1 / 551.9 K USD | Net P&L: +130 USD (+0.02%) | Favorable: 1,585 USD (0.29%) | Adverse: -145 USD (-0.03%) | Cumulative: 62,990 USD (62.99%)
+
+Trade #150 (Long)
+  Entry: Apr 29, 2026, 19:00 | Long      | 27,461.25 USD
+  Exit:  Apr 29, 2026, 20:40 | TP Green  | 27,595.25 USD
+  Size: 1 / 549.23 K USD | Net P&L: +2,680 USD (+0.49%) | Favorable: 3,230 USD (0.59%) | Adverse: -185 USD (-0.03%) | Cumulative: 62,860 USD (62.86%)
+
+Trade #149 (Long)
+  Entry: Apr 28, 2026, 19:00 | Long      | 27,224.00 USD
+  Exit:  Apr 28, 2026, 21:00 | SL Yellow | 27,227.25 USD
+  Size: 2 / 1.09 M USD | Net P&L: +130 USD (+0.01%) | Favorable: 2,800 USD (0.26%) | Adverse: -1,290 USD (-0.12%) | Cumulative: 60,180 USD (60.18%)
+
+Trade #148 (Long)
+  Entry: Apr 27, 2026, 19:00 | Long      | 27,488.50 USD
+  Exit:  Apr 27, 2026, 21:00 | SL Yellow | 27,457.25 USD
+  Size: 1 / 549.77 K USD | Net P&L: -625 USD (-0.11%) | Favorable: 470 USD (0.09%) | Adverse: -770 USD (-0.14%) | Cumulative: 60,050 USD (60.05%)
+
+Trade #147 (Long)
+  Entry: Apr 26, 2026, 19:00 | Long      | 27,390.75 USD
+  Exit:  Apr 26, 2026, 21:20 | TP Green  | 27,515.25 USD
+  Size: 1 / 547.82 K USD | Net P&L: +2,490 USD (+0.45%) | Favorable: 2,610 USD (0.48%) | Adverse: -480 USD (-0.09%) | Cumulative: 60,675 USD (60.68%)
+
+Trade #146 (Long)
+  Entry: Apr 23, 2026, 19:00 | Long      | 27,037.25 USD
+  Exit:  Apr 23, 2026, 23:20 | SL Yellow | 27,037.50 USD
+  Size: 2 / 1.08 M USD | Net P&L: +10 USD (+0.00%) | Favorable: 3,940 USD (0.36%) | Adverse: -560 USD (-0.05%) | Cumulative: 58,185 USD (58.18%)
+
+Trade #145 (Long)
+  Entry: Apr 22, 2026, 19:00 | Long      | 27,095.00 USD
+  Exit:  Apr 22, 2026, 20:00 | SL Yellow | 27,033.25 USD
+  Size: 1 / 541.9 K USD | Net P&L: -1,235 USD (-0.23%) | Favorable: 95 USD (0.02%) | Adverse: -4,940 USD (-0.91%) | Cumulative: 58,175 USD (58.18%)
+
+Trade #144 (Long)
+  Entry: Apr 21, 2026, 19:00 | Long      | 26,752.00 USD
+  Exit:  Apr 22, 2026, 01:20 | TP Green  | 26,826.25 USD
+  Size: 1 / 535.04 K USD | Net P&L: +1,485 USD (+0.28%) | Favorable: 2,095 USD (0.39%) | Adverse: -260 USD (-0.05%) | Cumulative: 59,410 USD (59.41%)
+
+Trade #143 (Long)
+  Entry: Apr 20, 2026, 19:00 | Long      | 26,805.50 USD
+  Exit:  Apr 21, 2026, 03:00 | SL Yellow | 26,821.00 USD
+  Size: 1 / 536.11 K USD | Net P&L: +310 USD (+0.06%) | Favorable: 1,035 USD (0.19%) | Adverse: -410 USD (-0.08%) | Cumulative: 57,925 USD (57.93%)
+
+Trade #142 (Long)
+  Entry: Apr 19, 2026, 19:00 | Long      | 26,652.50 USD
+  Exit:  Apr 20, 2026, 01:20 | SL Yellow | 26,632.75 USD
+  Size: 2 / 1.07 M USD | Net P&L: -790 USD (-0.07%) | Favorable: 2,490 USD (0.23%) | Adverse: -1,460 USD (-0.14%) | Cumulative: 57,615 USD (57.62%)
+
+Trade #141 (Long)
+  Entry: Apr 16, 2026, 19:00 | Long      | 26,482.75 USD
+  Exit:  Apr 17, 2026, 01:00 | SL Yellow | 26,449.50 USD
+  Size: 1 / 529.65 K USD | Net P&L: -665 USD (-0.13%) | Favorable: 300 USD (0.06%) | Adverse: -855 USD (-0.16%) | Cumulative: 58,405 USD (58.40%)
+
+Trade #140 (Long)
+  Entry: Apr 15, 2026, 19:00 | Long      | 26,393.00 USD
+  Exit:  Apr 16, 2026, 02:00 | TP Green  | 26,474.00 USD
+  Size: 2 / 1.06 M USD | Net P&L: +3,240 USD (+0.31%) | Favorable: 3,720 USD (0.35%) | Adverse: -380 USD (-0.04%) | Cumulative: 59,070 USD (59.07%)
+
+Trade #139 (Long)
+  Entry: Apr 14, 2026, 19:00 | Long      | 26,006.25 USD
+  Exit:  Apr 14, 2026, 22:20 | SL Yellow | 25,996.75 USD
+  Size: 1 / 520.13 K USD | Net P&L: -190 USD (-0.04%) | Favorable: 725 USD (0.14%) | Adverse: -295 USD (-0.06%) | Cumulative: 55,830 USD (55.83%)
+
+Trade #138 (Long)
+  Entry: Apr 13, 2026, 19:00 | Long      | 25,610.00 USD
+  Exit:  Apr 14, 2026, 06:20 | SL Yellow | 25,628.00 USD
+  Size: 1 / 512.2 K USD | Net P&L: +360 USD (+0.07%) | Favorable: 1,280 USD (0.25%) | Adverse: -1,000 USD (-0.20%) | Cumulative: 56,020 USD (56.02%)
+
+Trade #137 (Long)
+  Entry: Apr 12, 2026, 19:00 | Long      | 24,943.00 USD
+  Exit:  Apr 12, 2026, 21:00 | TP Green  | 25,067.00 USD
+  Size: 1 / 498.86 K USD | Net P&L: +2,480 USD (+0.50%) | Favorable: 2,805 USD (0.56%) | Adverse: -420 USD (-0.08%) | Cumulative: 55,660 USD (55.66%)
+
+Trade #136 (Long)
+  Entry: Apr 09, 2026, 19:00 | Long      | 25,210.50 USD
+  Exit:  Apr 10, 2026, 02:00 | SL Yellow | 25,240.25 USD
+  Size: 2 / 1.01 M USD | Net P&L: +1,190 USD (+0.12%) | Favorable: 3,730 USD (0.37%) | Adverse: -180 USD (-0.02%) | Cumulative: 53,180 USD (53.18%)
+
+Trade #135 (Long)
+  Entry: Apr 08, 2026, 19:00 | Long      | 25,034.75 USD
+  Exit:  Apr 09, 2026, 03:20 | SL Yellow | 24,998.75 USD
+  Size: 1 / 500.69 K USD | Net P&L: -720 USD (-0.14%) | Favorable: 485 USD (0.10%) | Adverse: -1,085 USD (-0.22%) | Cumulative: 51,990 USD (51.99%)
+
+Trade #134 (Long)
+  Entry: Apr 07, 2026, 19:00 | Long      | 24,973.75 USD
+  Exit:  [partially visible - cut off in screenshot]
+  Size: 998.95 K USD | Net P&L: +0.65% | Favorable: 0.73% | Adverse: -0.01% | Cumulative: 52.71%
+
+Trade #133 (Long)
+  Entry: Apr 06, 2026, 19:00 | Long      | 24,320.75 USD
+  Exit:  Apr 06, 2026, 21:00 | SL Yellow | 24,277.00 USD
+  Size: 1 / 486.42 K USD | Net P&L: -875 USD (-0.18%) | Favorable: 755 USD (0.16%) | Adverse: -1,445 USD (-0.30%) | Cumulative: 46,220 USD (46.22%)
+
+Trade #132 (Long)
+  Entry: Apr 05, 2026, 19:00 | Long      | 24,077.75 USD
+  Exit:  Apr 05, 2026, 20:20 | TP Green  | 24,182.00 USD
+  Size: 1 / 481.56 K USD | Net P&L: +2,085 USD (+0.43%) | Favorable: 2,530 USD (0.53%) | Adverse: -190 USD (-0.04%) | Cumulative: 47,095 USD (47.10%)
+
+Trade #131 (Long)
+  Entry: Apr 02, 2026, 19:00 | Long      | 24,196.25 USD
+  Exit:  Apr 02, 2026, 22:20 | SL Yellow | 24,163.00 USD
+  Size: 2 / 967.85 K USD | Net P&L: -1,330 USD (-0.14%) | Favorable: 2,350 USD (0.24%) | Adverse: -1,560 USD (-0.16%) | Cumulative: 45,010 USD (45.01%)
+
+Trade #130 (Long)
+  Entry: Apr 01, 2026, 19:00 | Long      | 24,191.00 USD
+  Exit:  Apr 01, 2026, 21:00 | SL Yellow | 23,996.75 USD
+  Size: 1 / 483.82 K USD | Net P&L: -3,885 USD (-0.80%) | Favorable: 1,095 USD (0.23%) | Adverse: -4,190 USD (-0.87%) | Cumulative: 46,340 USD (46.34%)
+
+Trade #129 (Long)
+  Entry: Mar 31, 2026, 19:00 | Long      | 23,965.25 USD
+  Exit:  Apr 01, 2026, 01:20 | TP Green  | 24,048.00 USD
+  Size: 1 / 479.31 K USD | Net P&L: +1,655 USD (+0.35%) | Favorable: 2,170 USD (0.45%) | Adverse: -215 USD (-0.04%) | Cumulative: 50,225 USD (50.22%)
+
+Trade #128 (Long)
+  Entry: Mar 30, 2026, 19:00 | Long      | 23,055.50 USD
+  Exit:  Mar 30, 2026, 20:40 | TP Green  | 23,202.25 USD
+  Size: 1 / 461.11 K USD | Net P&L: +2,935 USD (+0.64%) | Favorable: 4,565 USD (0.99%) | Adverse: -1,880 USD (-0.41%) | Cumulative: 48,570 USD (48.57%)
+
+Trade #127 (Long)
+  Entry: Mar 29, 2026, 19:00 | Long      | 23,176.00 USD
+  Exit:  Mar 29, 2026, 23:20 | TP Green  | 23,292.25 USD
+  Size: 1 / 463.52 K USD | Net P&L: +2,325 USD (+0.50%) | Favorable: 2,610 USD (0.56%) | Adverse: -1,660 USD (-0.36%) | Cumulative: 45,635 USD (45.64%)
+
+Trade #126 (Long)
+  Entry: Mar 26, 2026, 19:00 | Long      | 23,868.50 USD
+  Exit:  Mar 27, 2026, 01:00 | TP Green  | 23,958.25 USD
+  Size: 2 / 954.74 K USD | Net P&L: +3,590 USD (+0.38%) | Favorable: 4,300 USD (0.45%) | Adverse: -2,500 USD (-0.26%) | Cumulative: 43,310 USD (43.31%)
+
+Trade #125 (Long)
+  Entry: Mar 25, 2026, 19:00 | Long      | 24,299.00 USD
+  Exit:  Mar 25, 2026, 22:20 | SL Yellow | 24,259.25 USD
+  Size: 1 / 485.98 K USD | Net P&L: -795 USD (-0.16%) | Favorable: 2,220 USD (0.46%) | Adverse: -1,025 USD (-0.21%) | Cumulative: 39,720 USD (39.72%)
+
+Trade #124 (Long)
+  Entry: Mar 24, 2026, 19:00 | Long      | 24,428.00 USD
+  Exit:  Mar 24, 2026, 22:00 | SL Yellow | 24,366.75 USD
+  Size: 2 / 977.12 K USD | Net P&L: -2,450 USD (-0.25%) | Favorable: 2,640 USD (0.27%) | Adverse: -3,110 USD (-0.32%) | Cumulative: 40,515 USD (40.52%)
+
+Trade #123 (partial - Exit only visible)
+  Exit:  Mar 23, 2026, 20:00 | SL Yellow | 24,334.00 USD
+
+================================================================================
+End of extracted data
+================================================================================

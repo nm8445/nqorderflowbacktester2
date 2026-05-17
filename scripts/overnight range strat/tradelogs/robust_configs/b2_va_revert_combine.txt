@@ -1,0 +1,167 @@
+========================================================================================================================================================================================================
+V4 — DAILY BUCKET CROSS-TAB
+========================================================================================================================================================================================================
+B2: locked filtered V2 + mart-fc-only
+VA-revert: N=20, sig_D=0, conf_D=150, sl=1.0, hours=[9, 11, 12], cap=75.0%
+
+Total qualifying VA-revert days: 478
+Total B2 trade-days:             543
+
+Bucket counts and aggregate $ pts (B2 mart-scaled; VA 1-contract):
+                  n_days  b2_pnl  va_pnl_v4  va_pnl_v2  va_trades_v4  va_trades_v2
+bucket                                                                            
+AGREE-LONG            65   401.2      768.1      775.2          38.0          29.0
+AGREE-SHORT           21  1229.5       21.2       21.2           6.0           6.0
+B2-ONLY              345  4809.7        0.0        0.0           0.0           0.0
+CONFLICT-VAL-B2S      25   931.9     -429.1     -400.4          34.0          32.0
+CONFLICT-VAS-B2L      87   584.6      273.4      251.1          74.0          73.0
+VA-ONLY              280     0.0      887.6     1040.2         157.0         147.0
+
+========================================================================================================================================================================================================
+CONFLICT DAYS — who wins?
+========================================================================================================================================================================================================
+Total conflict days: 112
+  Days B2 net positive:        75 (67.0%)
+  Days VA-revert net positive: 28 (25.0%)
+  Days VA-revert > B2 on day:  43 (38.4%)
+
+Aggregate $ on conflict days:
+  B2 total:        +1516.5 pts ($+30,330 NQ)
+  VA-revert (V4):  -155.7 pts ($-3,115 NQ)
+  VA-revert (V2 stop-after-tp): -149.3 pts
+
+  CONFLICT-VAS-B2L: n=87  B2 $+11,691  VA-revert $+5,468
+  CONFLICT-VAL-B2S: n=25  B2 $+18,639  VA-revert $-8,582
+
+Per-day rows (conflict only):
+      date           bucket  b2_n  b2_pnl_scaled  va_n  va_pnl  va_pnl_v2  va_hit_tp
+2020-12-07 CONFLICT-VAS-B2L     1         -35.00  0.00    0.00       0.00      False
+2021-02-11 CONFLICT-VAS-B2L     2         -30.00  0.00    0.00       0.00      False
+2021-03-02 CONFLICT-VAS-B2L     1        -200.50  0.00    0.00       0.00      False
+2021-03-22 CONFLICT-VAS-B2L     1         117.82  0.00    0.00       0.00      False
+2021-05-20 CONFLICT-VAS-B2L     1          61.15  0.00    0.00       0.00      False
+2021-07-14 CONFLICT-VAS-B2L     1         -12.50  0.00    0.00       0.00      False
+2021-07-15 CONFLICT-VAL-B2S     2         105.11  2.00  -67.30     -67.30      False
+2021-07-28 CONFLICT-VAS-B2L     1        -102.75  1.00  104.75     104.75       True
+2021-08-13 CONFLICT-VAS-B2L     2          43.35  0.00    0.00       0.00      False
+2021-10-05 CONFLICT-VAS-B2L     1          71.96  2.00 -109.39    -109.39      False
+2021-10-20 CONFLICT-VAS-B2L     1          -5.75  1.00   21.50      21.50       True
+2021-10-26 CONFLICT-VAS-B2L     1          41.56  3.00  -93.77     -93.77      False
+2021-11-03 CONFLICT-VAS-B2L     1          58.68  0.00    0.00       0.00      False
+2021-11-05 CONFLICT-VAS-B2L     1         -17.75  1.00  -34.20     -34.20      False
+2021-11-23 CONFLICT-VAL-B2S     2          30.00  2.00 -127.82    -127.82      False
+2021-11-29 CONFLICT-VAS-B2L     1          79.66  2.00  -76.95     -76.95      False
+2021-12-23 CONFLICT-VAS-B2L     2          17.61  0.00    0.00       0.00      False
+2021-12-28 CONFLICT-VAS-B2L     1           3.00  0.00    0.00       0.00      False
+2022-01-07 CONFLICT-VAL-B2S     1         -32.00  2.00   44.75      32.25       True
+2022-01-12 CONFLICT-VAS-B2L     1           8.75  1.00  130.00     130.00       True
+2022-01-31 CONFLICT-VAS-B2L     1         111.61  1.00  -34.63     -34.63      False
+2022-02-11 CONFLICT-VAL-B2S     1         138.83  0.00    0.00       0.00      False
+2022-03-17 CONFLICT-VAS-B2L     1          27.50  2.00 -104.92    -104.92      False
+2022-03-21 CONFLICT-VAS-B2L     1          50.50  1.00  -38.18     -38.18      False
+2022-03-22 CONFLICT-VAS-B2L     1          28.25  0.00    0.00       0.00      False
+2022-04-20 CONFLICT-VAS-B2L     1         -20.75  0.00    0.00       0.00      False
+2022-04-21 CONFLICT-VAS-B2L     2        -405.00  1.00  129.75     129.75       True
+2022-04-28 CONFLICT-VAS-B2L     2         295.91  1.00   18.00      18.00       True
+2022-05-13 CONFLICT-VAS-B2L     2         125.75  2.00  -74.66     -74.66      False
+2022-05-18 CONFLICT-VAL-B2S     1          83.78  1.00  -37.47     -37.47      False
+2022-05-23 CONFLICT-VAS-B2L     1          60.75  1.00  114.00     114.00       True
+2022-05-24 CONFLICT-VAL-B2S     2         -80.97  1.00  137.00     137.00      False
+2022-05-26 CONFLICT-VAS-B2L     1         104.92  0.00    0.00       0.00      False
+2022-07-07 CONFLICT-VAS-B2L     1          64.80  1.00  -23.71     -23.71      False
+2022-07-14 CONFLICT-VAL-B2S     2         -30.53  1.00   52.00      52.00       True
+2022-07-15 CONFLICT-VAS-B2L     1          62.50  2.00  -79.25     -79.25      False
+2022-07-26 CONFLICT-VAL-B2S     1         132.16  0.00    0.00       0.00      False
+2022-08-03 CONFLICT-VAS-B2L     1         149.05  0.00    0.00       0.00      False
+2022-08-08 CONFLICT-VAS-B2L     1          -5.00  1.00  140.00     140.00       True
+2022-08-09 CONFLICT-VAL-B2S     1        -121.50  2.00  -64.62     -64.62      False
+2022-09-06 CONFLICT-VAL-B2S     1         106.33  3.00  -61.72     -20.52       True
+2022-09-27 CONFLICT-VAS-B2L     1          24.75  1.00  115.50     115.50       True
+2022-10-25 CONFLICT-VAS-B2L     1          74.45  2.00  -50.22     -50.22      False
+2022-11-07 CONFLICT-VAS-B2L     1          14.00  0.00    0.00       0.00      False
+2022-11-08 CONFLICT-VAS-B2L     1          66.22  1.00  169.50     169.50       True
+2022-11-16 CONFLICT-VAL-B2S     2          15.75  1.00  -32.18     -32.18      False
+2022-11-29 CONFLICT-VAL-B2S     2          55.81  2.00    8.47       8.47      False
+2022-12-01 CONFLICT-VAS-B2L     1         -22.75  1.00  -36.00     -36.00      False
+2023-01-05 CONFLICT-VAL-B2S     1          30.50  0.00    0.00       0.00      False
+2023-01-06 CONFLICT-VAS-B2L     1          98.33  0.00    0.00       0.00      False
+2023-01-09 CONFLICT-VAS-B2L     1          58.43  1.00  205.00     205.00       True
+2023-01-20 CONFLICT-VAS-B2L     2         123.56  0.00    0.00       0.00      False
+2023-01-26 CONFLICT-VAS-B2L     1          36.75  1.00  -40.62     -40.62      False
+2023-03-06 CONFLICT-VAS-B2L     1         -43.00  1.00  103.50     103.50      False
+2023-03-14 CONFLICT-VAS-B2L     2          61.83  1.00  -46.30     -46.30      False
+2023-03-16 CONFLICT-VAS-B2L     1          99.68  2.00  -67.63     -67.63      False
+2023-03-22 CONFLICT-VAS-B2L     1          63.34  1.00  -16.08     -16.08      False
+2023-03-28 CONFLICT-VAL-B2S     1         -50.00  2.00  -44.96     -44.96      False
+2023-03-31 CONFLICT-VAS-B2L     1          47.95  1.00  -18.75     -18.75      False
+2023-04-04 CONFLICT-VAS-B2L     1          17.25  1.00   32.25      32.25       True
+2023-05-11 CONFLICT-VAS-B2L     1          -6.00  0.00    0.00       0.00      False
+2023-06-02 CONFLICT-VAS-B2L     1          17.25  1.00  -28.59     -28.59      False
+2023-06-09 CONFLICT-VAS-B2L     1          31.25  1.00   50.25      50.25       True
+2023-07-07 CONFLICT-VAS-B2L     1        -179.50  0.00    0.00       0.00      False
+2023-07-14 CONFLICT-VAS-B2L     3        -129.75  2.00   32.62      32.62      False
+2023-07-19 CONFLICT-VAS-B2L     2        -195.50  2.00   68.38      68.38       True
+2023-07-25 CONFLICT-VAS-B2L     2          53.93  1.00  -29.50     -29.50      False
+2023-08-10 CONFLICT-VAS-B2L     2        -142.50  1.00  -38.36     -38.36      False
+2023-08-17 CONFLICT-VAL-B2S     1          64.17  3.00  -73.79     -73.79      False
+2023-08-21 CONFLICT-VAS-B2L     1          66.48  2.00  -66.40     -66.40      False
+2023-09-14 CONFLICT-VAS-B2L     1          49.00  1.00  -27.66     -27.66      False
+2023-09-15 CONFLICT-VAL-B2S     1          55.08  0.00    0.00       0.00      False
+2023-09-26 CONFLICT-VAL-B2S     1          62.62  3.00  -70.76     -70.76      False
+2023-09-29 CONFLICT-VAS-B2L     2        -181.50  2.00    8.50       8.50       True
+2023-10-03 CONFLICT-VAL-B2S     1          91.13  1.00  -35.30     -35.30      False
+2023-10-05 CONFLICT-VAS-B2L     1         -31.25  1.00   -2.50      -2.50       True
+2023-10-25 CONFLICT-VAL-B2S     1          63.62  2.00  -54.01     -54.01      False
+2023-11-01 CONFLICT-VAS-B2L     1         176.87  1.00  -21.01     -21.01      False
+2023-11-03 CONFLICT-VAS-B2L     1           2.25  2.00  -55.04     -55.04      False
+2023-11-09 CONFLICT-VAS-B2L     1         -89.50  1.00  -22.11     -22.11      False
+2023-12-13 CONFLICT-VAS-B2L     1          56.28  1.00  -18.00     -18.00      False
+2024-01-17 CONFLICT-VAL-B2S     1          22.00  2.00  -45.69     -45.69      False
+2024-02-09 CONFLICT-VAS-B2L     1          53.11  1.00  -20.68     -20.68      False
+2024-02-14 CONFLICT-VAS-B2L     1          -2.25  0.00    0.00       0.00      False
+2024-02-23 CONFLICT-VAS-B2L     2         -12.26  1.00   44.00      44.00       True
+2024-03-01 CONFLICT-VAS-B2L     1          61.47  1.00  -18.56     -18.56      False
+2024-04-24 CONFLICT-VAS-B2L     2        -249.50  0.00    0.00       0.00      False
+2024-04-30 CONFLICT-VAL-B2S     1         156.93  1.00  -29.31     -29.31      False
+2024-05-02 CONFLICT-VAS-B2L     2         126.90  0.00    0.00       0.00      False
+2024-05-06 CONFLICT-VAS-B2L     1          40.45  1.00  -29.73     -29.73      False
+2024-06-28 CONFLICT-VAS-B2L     2        -182.50  0.00    0.00       0.00      False
+2024-07-10 CONFLICT-VAS-B2L     2          63.97  0.00    0.00       0.00      False
+2024-08-12 CONFLICT-VAS-B2L     2        -169.75  1.00   70.75      70.75       True
+2024-11-04 CONFLICT-VAL-B2S     1        -153.00  1.00   18.25      18.25       True
+2024-12-24 CONFLICT-VAS-B2L     1          60.17  0.00    0.00       0.00      False
+2025-02-19 CONFLICT-VAS-B2L     1         -31.00  1.00  -29.54     -29.54      False
+2025-04-01 CONFLICT-VAS-B2L     1        -336.50  2.00  -95.94     -95.94      False
+2025-04-22 CONFLICT-VAS-B2L     1          40.50  0.00    0.00       0.00      False
+2025-06-03 CONFLICT-VAS-B2L     1          78.72  0.00    0.00       0.00      False
+2025-06-05 CONFLICT-VAS-B2L     1        -202.25  1.00   76.75      76.75       True
+2025-08-20 CONFLICT-VAL-B2S     1         -93.75  1.00  153.50     153.50      False
+2025-09-04 CONFLICT-VAS-B2L     1          74.63  2.00   51.00      28.75       True
+2025-09-08 CONFLICT-VAS-B2L     1         -86.25  0.00    0.00       0.00      False
+2025-09-12 CONFLICT-VAS-B2L     1          50.54  0.00    0.00       0.00      False
+2025-10-16 CONFLICT-VAS-B2L     1        -171.75  2.00   23.01      23.01       True
+2025-11-07 CONFLICT-VAL-B2S     1         163.11  0.00    0.00       0.00      False
+2025-11-24 CONFLICT-VAS-B2L     1         136.83  2.00 -111.93    -111.93      False
+2025-12-02 CONFLICT-VAS-B2L     2          19.50  1.00  158.25     158.25       True
+2026-01-07 CONFLICT-VAS-B2L     2         148.14  0.00    0.00       0.00      False
+2026-01-09 CONFLICT-VAS-B2L     1          15.75  0.00    0.00       0.00      False
+2026-01-14 CONFLICT-VAL-B2S     1         116.74  1.00  -98.16     -98.16      False
+2026-02-25 CONFLICT-VAS-B2L     1          89.20  1.00  -33.07     -33.07      False
+
+========================================================================================================================================================================================================
+V2 — COMBINED STRATEGY: B2 on AGREE/B2-ONLY, VA-revert on CONFLICT/VA-ONLY (stop-after-TP)
+========================================================================================================================================================================================================
+ALL  combined_v2 =  +7331.3 pts  ($ +146,626)   |   B2-only =  +7956.9  |  VA-revert-only =  +1687.2
+IS   combined_v2 =  +4828.9 pts  ($  +96,577)   |   B2-only =  +5732.2  |  VA-revert-only =  +1123.9
+OOS  combined_v2 =  +2502.4 pts  ($  +50,049)   |   B2-only =  +2224.7  |  VA-revert-only =   +563.4
+
+V2 per-year breakdown:
+      v2_pts  b2_only_pts  va_only_pts  n_days  v2_dollars_nq  b2_dollars_nq
+year                                                                        
+2020    83.7         77.0        -28.2      11         1674.0         1540.0
+2021   410.1        985.7       -213.0     153         8202.0        19714.0
+2022  1818.2       2429.8        896.9     155        36364.0        48596.0
+2023  1065.4        985.0        392.5     185        21308.0        19700.0
+2024  1451.5       1254.7         75.7     148        29030.0        25094.0
+2025  1147.9        656.4        407.3     129        22958.0        13128.0
+2026  1354.5       1568.3        156.1      42        27090.0        31366.0

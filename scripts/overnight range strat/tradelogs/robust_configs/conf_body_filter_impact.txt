@@ -1,0 +1,76 @@
+========================================================================================================================================================================================================
+CONF-BODY FILTER IMPACT  (locked filtered entries + fixed 20pt TP / 20pt SL)
+========================================================================================================================================================================================================
+
+V0 baseline:    locked filtered (B2 + conf delta + hours 9-14 + drop POS+SHORT)
+V1 body-size:   V0 AND |conf_close - conf_open| > |sig_close - sig_open|
+V2 directional: V1 AND conf candle in trade direction (LONG -> bullish; SHORT -> bearish)
+
+  variant                                     set     n   TP   SL   HC      WR     PF      total       MDD         NQ$       MNQ$
+  ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  V0 baseline (locked filtered)               IS    809  393  413    3   48.8%   0.95    -372.50  -1024.50  $   -7,450  $    -745
+  V0 baseline (locked filtered)               OOS   161   71   90    0   44.1%   0.79    -380.00   -480.00  $   -7,600  $    -760
+  V0 baseline (locked filtered)               ALL   970  464  503    3   48.0%   0.93    -752.50  -1024.50  $  -15,050  $  -1,505
+
+  V1 + conf_body > sig_body                   IS    649  315  331    3   48.8%   0.96    -292.50   -744.50  $   -5,850  $    -585
+  V1 + conf_body > sig_body                   OOS   126   57   69    0   45.2%   0.83    -240.00   -420.00  $   -4,800  $    -480
+  V1 + conf_body > sig_body                   ALL   775  372  400    3   48.3%   0.93    -532.50   -812.50  $  -10,650  $  -1,065
+
+  V2 + conf_body > sig_body & dir-match       IS    649  315  331    3   48.8%   0.96    -292.50   -744.50  $   -5,850  $    -585
+  V2 + conf_body > sig_body & dir-match       OOS   126   57   69    0   45.2%   0.83    -240.00   -420.00  $   -4,800  $    -480
+  V2 + conf_body > sig_body & dir-match       ALL   775  372  400    3   48.3%   0.93    -532.50   -812.50  $  -10,650  $  -1,065
+
+========================================================================================================================================================================================================
+DELTAS  vs V0 baseline (combined IS+OOS)
+========================================================================================================================================================================================================
+
+  V1 + conf_body > sig_body:
+    trades:    775   (Δ -195, kept 80% of baseline)
+    WR:        48.3%   (Δ +0.2 pp)
+    PF:        0.93    (Δ +0.01)
+    total pts: -532.5  (Δ +220.0)
+    MDD pts:   -812.5   (Δ +212.0)
+    total $:   $-10,650 NQ  /  $-1,065 MNQ
+
+  V2 + conf_body > sig_body & dir-match:
+    trades:    775   (Δ -195, kept 80% of baseline)
+    WR:        48.3%   (Δ +0.2 pp)
+    PF:        0.93    (Δ +0.01)
+    total pts: -532.5  (Δ +220.0)
+    MDD pts:   -812.5   (Δ +212.0)
+    total $:   $-10,650 NQ  /  $-1,065 MNQ
+
+========================================================================================================================================================================================================
+APRIL 2026 DETAIL — which trades each variant keeps
+========================================================================================================================================================================================================
+
+  V0 baseline (locked filtered): n=11  TP=6  SL=5  HC=0  WR=54.5%  total=+20.0 pts  ($+400 NQ / $+40 MNQ)
+    2026-04-09 13:40 LONG  sig_body=11.25  conf_body=36.50  result=-20.00 pts  (SL hit)
+    2026-04-13 10:45 LONG  sig_body=14.00  conf_body=25.50  result=-20.00 pts  (SL hit)
+    2026-04-15 11:25 LONG  sig_body= 2.50  conf_body= 0.25  result=-20.00 pts  (SL hit) [conf<=sig]
+    2026-04-16 11:05 LONG  sig_body= 7.75  conf_body=36.00  result=+20.00 pts  (TP hit)
+    2026-04-16 12:40 LONG  sig_body=48.50  conf_body=36.75  result=-20.00 pts  (SL hit) [conf<=sig]
+    2026-04-16 13:10 LONG  sig_body= 7.00  conf_body= 0.50  result=-20.00 pts  (SL hit) [conf<=sig]
+    2026-04-16 13:25 LONG  sig_body= 3.00  conf_body=30.25  result=+20.00 pts  (TP hit)
+    2026-04-16 14:35 LONG  sig_body= 3.25  conf_body=40.50  result=+20.00 pts  (TP hit)
+    2026-04-17 13:35 LONG  sig_body=14.25  conf_body= 1.00  result=+20.00 pts  (TP hit) [conf<=sig]
+    2026-04-17 14:20 LONG  sig_body= 6.75  conf_body=10.00  result=+20.00 pts  (TP hit)
+    2026-04-23 12:15 LONG  sig_body= 3.25  conf_body=30.25  result=+20.00 pts  (TP hit)
+
+  V1 + conf_body > sig_body: n=7  TP=5  SL=2  HC=0  WR=71.4%  total=+60.0 pts  ($+1,200 NQ / $+120 MNQ)
+    2026-04-09 13:40 LONG  sig_body=11.25  conf_body=36.50  result=-20.00 pts  (SL hit)
+    2026-04-13 10:45 LONG  sig_body=14.00  conf_body=25.50  result=-20.00 pts  (SL hit)
+    2026-04-16 11:05 LONG  sig_body= 7.75  conf_body=36.00  result=+20.00 pts  (TP hit)
+    2026-04-16 13:25 LONG  sig_body= 3.00  conf_body=30.25  result=+20.00 pts  (TP hit)
+    2026-04-16 14:35 LONG  sig_body= 3.25  conf_body=40.50  result=+20.00 pts  (TP hit)
+    2026-04-17 14:20 LONG  sig_body= 6.75  conf_body=10.00  result=+20.00 pts  (TP hit)
+    2026-04-23 12:15 LONG  sig_body= 3.25  conf_body=30.25  result=+20.00 pts  (TP hit)
+
+  V2 + conf_body > sig_body & dir-match: n=7  TP=5  SL=2  HC=0  WR=71.4%  total=+60.0 pts  ($+1,200 NQ / $+120 MNQ)
+    2026-04-09 13:40 LONG  sig_body=11.25  conf_body=36.50  result=-20.00 pts  (SL hit)
+    2026-04-13 10:45 LONG  sig_body=14.00  conf_body=25.50  result=-20.00 pts  (SL hit)
+    2026-04-16 11:05 LONG  sig_body= 7.75  conf_body=36.00  result=+20.00 pts  (TP hit)
+    2026-04-16 13:25 LONG  sig_body= 3.00  conf_body=30.25  result=+20.00 pts  (TP hit)
+    2026-04-16 14:35 LONG  sig_body= 3.25  conf_body=40.50  result=+20.00 pts  (TP hit)
+    2026-04-17 14:20 LONG  sig_body= 6.75  conf_body=10.00  result=+20.00 pts  (TP hit)
+    2026-04-23 12:15 LONG  sig_body= 3.25  conf_body=30.25  result=+20.00 pts  (TP hit)

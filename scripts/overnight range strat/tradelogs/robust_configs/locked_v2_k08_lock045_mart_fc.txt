@@ -1,0 +1,140 @@
+========================================================================================================================================================================================================
+LOCKED CONFIG — V2 K=0.8 lock=0.45 + martingale FC-only  (chosen 2026-05-10)
+========================================================================================================================================================================================================
+
+ENTRY (5-min bar signals):
+  variant         B2
+  pinbar X        0.75      (signal candle wick prominence floor)
+  window N        15      (signal candle absorption window in ticks)
+  delta D         70      (signal candle absorption threshold)
+  strict          True    (require SHORT close < OLO / LONG close > OHO)
+  band_K          0.25    (level-proximity band: clip(band_K * ATR, 5, 20))
+  conf_N          5      (confirmation candle window)
+  conf_D          75     (confirmation delta threshold, HALF mode)
+
+EXIT (20-min bar management):
+  STOP TYPE:      pure_ratchet  +  V2 MFE-anchored guard
+                  yellow_val      = close - sign * 2.5 * ATR_14_20min  (ratchet — never moves against)
+                  MFE-guard arms  when peak_MFE >= 0.8 * (TP_distance)
+                  mfe_stop        = entry +/- 0.45 * peak_MFE
+                  effective_stop  = MORE FAVORABLE of (yellow_val, mfe_stop)
+                  trigger:        close beyond stop AND adverse-direction bar
+  TP TYPE:        FIXED at entry +/- 2.0 * ATR_at_entry  (no decay)
+  FORCE CLOSE:    16:00 ET  (RTH end)
+
+SIZING (martingale FC-only):
+  default size = 1 contract
+  loss with reason == FORCE_CLOSE -> next trade = 2 contracts
+  after 2-contract trade (any outcome) -> reset to 1
+  loss with reason == SL_TRAIL  -> NO CHANGE (stay at 1)
+  wins -> stay at 1 until next FC-loss
+  Maximum size ever = 2 contracts.
+
+DEDUPE: chained Mode 1 by actual exit times (no overlapping trades)
+INSTRUMENT: MNQ ($2/pt, $0.50 tick).  NQ basis: $20/pt.
+DATA RANGE: IS = 2020-12-01 → 2024-12-31  |  OOS = 2025-01 → 2025-11
+
+========================================================================================================================================================================================================
+RANK-STYLE SUMMARY (matches top_25_robust_configs.txt header)
+========================================================================================================================================================================================================
+
+With martingale FC-only applied (scaled PnL):
+rank  conf_N  conf_D  tot_n   is_n  is_pf  is_sharpe   is_wr   is_total  oos_n  oos_pf  oos_sharpe  oos_wr  oos_total  min_pf  min_sharpe   is_mdd  oos_mdd  worst_mdd
+   1       5      75    832    688   1.32       1.93   59.3%    +6665.0    144   1.41        2.24   56.9%    +2116.6    1.32        1.93  -1018.9  -1109.8     1109.8
+
+Without martingale (raw 1-contract baseline):
+rank  conf_N  conf_D  tot_n   is_n  is_pf  is_sharpe   is_wr   is_total  oos_n  oos_pf  oos_sharpe  oos_wr  oos_total  min_pf  min_sharpe   is_mdd  oos_mdd  worst_mdd
+   0       5      75    832    688   1.29       1.92   59.3%    +5111.1    144   1.35        2.14   56.9%    +1510.9    1.29        1.92   -657.7   -577.8      657.7
+
+(All totals/MDDs in NQ pts.  $ value: NQ = pts × $20  |  MNQ = pts × $2)
+
+========================================================================================================================================================================================================
+HEADLINE METRICS
+========================================================================================================================================================================================================
+  Combined IS+OOS (with FC-only mart):
+    trades:        832    total:        +8781.6 pts   = $+17,563 MNQ   ($+175,631 NQ)
+    PF:            1.336     win-rate:     58.89%     payoff (avg_w/|avg_l|): 0.930
+    avg win:       +71.20 pts     avg loss:     -76.56 pts
+    max DD:        -1109.8 pts (-2,220 MNQ$)  (-22,196 NQ$)
+    exit-reason mix: TP=277  SL_TRAIL=203  FORCE_CLOSE=351
+
+  Marginal contribution of martingale (FC-only):
+    no-mart total: +6622.0 pts   $+13,244 MNQ
+    mart total:    +8781.6 pts   $+17,563 MNQ
+    delta:         +2159.6 pts   $+4,319 MNQ  (+32.6%)
+    no-mart MDD:   -657.7 pts   $-1,315 MNQ
+    mart MDD:      -1109.8 pts   $-2,220 MNQ
+    DD penalty:    +$904 MNQ (+452.1 pts)
+
+========================================================================================================================================================================================================
+MFE / TP-PROXIMITY DIAGNOSTICS
+========================================================================================================================================================================================================
+
+  Trades by peak MFE as fraction of TP distance (peak_mfe / (2 * ATR_at_entry)):
+  mfe_bucket                n   tp   sl   fc   avg_pnl      wr      total
+  0-25%                   212    0   77  135    -73.82   11.3%   -15650.5
+  25-50%                  134    0   30  104    -42.87   35.8%    -5744.8
+  50-75%                   95    0   24   71     -6.64   54.7%     -631.2
+  75-80%                   20    0    5   15     -2.77   60.0%      -55.5
+  >=80% (guard armed)      94    0   67   26    +33.47   81.9%    +3145.8
+  >=100% (TP hit)         277  277    0    0   +100.06  100.0%   +27717.8
+
+  Peak MFE (pts) — combined: median=50.4  mean=56.8  p25=18.5  p75=82.2
+  TP distance (pts) — combined: median=78.6  mean=85.7
+
+========================================================================================================================================================================================================
+ENTRY-HOUR BREAKDOWN (entry_hour ET)  — both raw and martingale-applied
+========================================================================================================================================================================================================
+  hour     n   tp   sl   fc   no-mart_total no-mart_pf no-mart_wr   mart_total mart_pf mart_wr    mart_mdd
+  9       17   13    4    0          +413.2       1.94      76.5%       +865.3    2.96   76.5%      -288.8
+  10     201  111   73   16         +3257.7       1.58      64.2%      +4025.3    1.57   64.2%      -818.4
+  11     157   61   61   35          +755.3       1.14      59.2%       +837.6    1.13   59.2%     -1058.1
+  12     112   35   31   46          +502.2       1.13      57.1%       +564.1    1.13   57.1%      -821.9
+  13      93   23   18   52          +735.3       1.33      59.1%       +643.4    1.24   59.1%      -628.5
+  14     100   24   11   65         +1112.8       1.64      61.0%      +1870.2    1.96   61.0%      -353.8
+  15      94    9    4   81          -178.1       0.92      51.1%        -16.4    0.99   51.1%      -468.3
+  16      58    1    1   56           +23.5       1.04      46.6%         -8.0    0.99   46.6%      -164.8
+
+  Filtering hint: hours with negative no-mart total or PF < 1 are candidates to drop.
+
+========================================================================================================================================================================================================
+PER-PERIOD DETAIL
+========================================================================================================================================================================================================
+
+  IS:
+    no-mart  n=688  total=+5111.1 pts ($+10,222 MNQ)  pf=1.291  sharpe=+1.92  wr=59.3%  mdd=-657.7 ($-1,315)
+    mart     n=688  total=+6665.0 pts ($+13,330 MNQ)  pf=1.319  sharpe=+1.93  wr=59.3%  mdd=-1018.9 ($-2,038)
+
+  OOS:
+    no-mart  n=144  total=+1510.9 pts ($+3,022 MNQ)  pf=1.349  sharpe=+2.14  wr=56.9%  mdd=-577.8 ($-1,156)
+    mart     n=144  total=+2116.6 pts ($+4,233 MNQ)  pf=1.407  sharpe=+2.24  wr=56.9%  mdd=-1109.8 ($-2,220)
+
+========================================================================================================================================================================================================
+GAMMA REGIME FILTER  (prior-day EOD multi-DTE qqq_gamma_sign)
+========================================================================================================================================================================================================
+  trades with gamma label: 832 / 832 (100.0%)
+
+  subset                                 n    L    S  no-mart_total no-mart_pf no-mart_wr   mart_total mart_pf mart_wr    mart_mdd
+  ALL labelled                         832  632  200        +6622.0       1.30      58.9%      +8781.6    1.34   58.9%     -1109.8
+  POS gamma  (sign = +1)               146  112   34         +640.8       1.19      57.5%       +932.2    1.24   57.5%      -627.4
+  NEG gamma  (sign = -1)               685  519  166        +6018.9       1.32      59.3%      +7887.1    1.35   59.3%      -884.2
+  POS gamma + LONG only                112  112    0         +580.8       1.24      58.0%       +728.7    1.25   58.0%      -539.6
+  POS gamma + SHORT only                34    0   34          +60.0       1.07      55.9%       +203.6    1.22   55.9%      -280.8
+  NEG gamma + LONG only                519  519    0        +4144.3       1.30      59.3%      +5699.4    1.35   59.3%     -1083.1
+  NEG gamma + SHORT only               166    0  166        +1874.6       1.39      59.0%      +2187.7    1.36   59.0%      -619.0
+  Drop POS+SHORT only                  798  632  166        +6562.0       1.31      59.0%      +8578.0    1.34   59.0%     -1018.9
+  Drop NEG+SHORT only                  666  632   34        +4747.4       1.28      58.9%      +6593.9    1.33   58.9%     -1380.9
+
+  Gamma regime — IS / OOS split:
+
+    IS:
+      POS-gamma  n=117  total=  +761.7 pts ($ +1,523 MNQ)  pf=1.29  wr=58.1%  mdd=-627.4
+      NEG-gamma  n=570  total= +5941.0 pts ($+11,882 MNQ)  pf=1.33  wr=59.6%  mdd=-773.6
+
+    OOS:
+      POS-gamma  n= 29  total=  +170.5 pts ($   +341 MNQ)  pf=1.15  wr=55.2%  mdd=-527.8
+      NEG-gamma  n=115  total= +1946.1 pts ($ +3,892 MNQ)  pf=1.48  wr=57.4%  mdd=-884.2
+
+========================================================================================================================================================================================================
+END.
+========================================================================================================================================================================================================
