@@ -201,6 +201,9 @@ class B2Engine:
             ets = ets.tz_localize(ET_TZ)
         if ets.hour not in ALLOWED_HOURS:
             self.n_blocked_hour += 1
+            print(f"  [B2-BLOCKED] {ets.strftime('%Y-%m-%d %H:%M ET')} {to_fire['direction']} @ "
+                  f"{to_fire['entry_price']:.2f} blocked by hour filter "
+                  f"(hour {ets.hour} not in {{9..14}})")
             return
 
         # Filter: POS-gamma SHORT block
@@ -209,6 +212,9 @@ class B2Engine:
             gs = self._gamma_sign.get(ets.date())
             if gs == 1:
                 self.n_blocked_pos_short += 1
+                print(f"  [B2-BLOCKED] {ets.strftime('%Y-%m-%d %H:%M ET')} SHORT @ "
+                      f"{to_fire['entry_price']:.2f} blocked by POS gamma "
+                      f"(qqq_gamma_sign=+1 on {ets.date()})")
                 return
 
         # Place entry

@@ -83,6 +83,9 @@ class FabioORBEngine:
         self._orb_high: Optional[float] = None
         self._orb_low: Optional[float] = None
         self._post_orb_bars: list[Bar] = []   # bars in (09:00, 14:00] today
+        # One trade per day max (matches backtest's run_day which breaks after
+        # the first valid entry and returns after the exit).
+        self._traded_today: bool = False
 
         self.n_bars_seen = 0
         self.n_entries = 0
@@ -115,6 +118,7 @@ class FabioORBEngine:
         self._orb_high = None
         self._orb_low = None
         self._post_orb_bars = []
+        self._traded_today = False
 
     def on_5min_bar(self, bar: Bar) -> None:
         """Process a closed 5-min bar."""
@@ -158,7 +162,11 @@ class FabioORBEngine:
             self._post_orb_bars.append(bar)
 
             # === Entry evaluation ===
-            if self.position is None and self._orb_high is not None:
+            # One trade per day max — once `_traded_today` flips True, no more
+            # entries until next session.
+            if (self.position is None
+                    and self._orb_high is not None
+                    and not self._traded_today):
                 self._try_entry(bar, hhmm, close_ts)
 
     def _try_entry(self, bar: Bar, hhmm: int, close_ts: pd.Timestamp) -> None:
@@ -198,6 +206,8 @@ class FabioORBEngine:
             tp_price=tp_price,
             qty=1,
         )
+        # Lock out further entries for the rest of today's session
+        self._traded_today = True
         self.emit(FabioSignal(event="ENTRY", direction=Direction.LONG,
                                price=entry_price, timestamp=close_ts,
                                reason="", qty=1))
