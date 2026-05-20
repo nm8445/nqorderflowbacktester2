@@ -182,6 +182,12 @@ namespace NinjaTrader.NinjaScript.AddOns
 
                 watchdogTimer = new Timer(_ => CheckHeartbeats(), null, 10000, 10000);
 
+                // Resync state from NT8's live order book — recovers from
+                // addon recompiles/restarts mid-trade. Scans Working+Filled
+                // orders, filters by our tag prefixes (RV_, B2_, OD_, FB_),
+                // and rebuilds openTaggedPositions.
+                ResyncFromNT8();
+
                 uiDispatcher?.BeginInvoke(new Action(() =>
                 {
                     statusText.Text = $"Status: LISTENING on http://localhost:{serverPort}";
@@ -211,6 +217,73 @@ namespace NinjaTrader.NinjaScript.AddOns
                 stopButton.IsEnabled = false;
             }));
             Log("Server stopped");
+        }
+
+        // Resync openTaggedPositions from NT8's live order book at startup.
+        // Each entry/stop/target order carries Name = "{tag}_E" / "_S" / "_T"
+        // so we can reconstruct positions by walking the account's orders.
+        private void ResyncFromNT8()
+        {
+            if (trackedAccount == null) return;
+            try
+            {
+                var byTag = new Dictionary<string, TaggedPosition>();
+                foreach (var ord in trackedAccount.Orders.ToList())
+                {
+                    if (string.IsNullOrEmpty(ord.Name)) continue;
+                    // Tag is the order Name minus the suffix (_E / _S / _T / _X)
+                    string n = ord.Name;
+                    string baseTag = null;
+                    if (n.EndsWith("_E")) baseTag = n.Substring(0, n.Length - 2);
+                    else if (n.EndsWith("_S")) baseTag = n.Substring(0, n.Length - 2);
+                    else if (n.EndsWith("_T")) baseTag = n.Substring(0, n.Length - 2);
+                    if (baseTag == null) continue;
+                    // Must look like {STRAT}_YYYYMMDD_HHMMSS_DIR
+                    var parts = baseTag.Split('_');
+                    if (parts.Length < 4) continue;
+                    string strat = parts[0];
+                    if (strat != "RV" && strat != "B2" && strat != "OD" && strat != "FB") continue;
+                    string direction = parts[parts.Length - 1];
+                    if (direction != "LONG" && direction != "SHORT") continue;
+
+                    if (!byTag.TryGetValue(baseTag, out var pos))
+                    {
+                        pos = new TaggedPosition {
+                            Tag = baseTag, Strat = strat, Direction = direction,
+                            Quantity = (int)ord.Quantity, EntryTime = DateTime.Now,
+                            InstanceId = "RESYNC"
+                        };
+                        byTag[baseTag] = pos;
+                    }
+                    if (n.EndsWith("_E")) pos.EntryOrder = ord;
+                    else if (n.EndsWith("_S")) pos.StopOrder = ord;
+                    else if (n.EndsWith("_T")) pos.TargetOrder = ord;
+                }
+                // Only keep positions whose entry order is FILLED AND has open
+                // stop or target orders (i.e., position is still active in NT8)
+                int adopted = 0;
+                foreach (var pos in byTag.Values)
+                {
+                    bool entryFilled = pos.EntryOrder != null && pos.EntryOrder.OrderState == OrderState.Filled;
+                    bool stopWorking = pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working;
+                    bool tgtWorking  = pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working;
+                    if (entryFilled && (stopWorking || tgtWorking))
+                    {
+                        openTaggedPositions[pos.Tag] = pos;
+                        adopted++;
+                        Log($"  RESYNC adopted: {pos.Tag} stop={stopWorking} tgt={tgtWorking}");
+                    }
+                }
+                if (adopted > 0)
+                {
+                    Log($"Resynced {adopted} active position(s) from NT8 order book");
+                    UpdatePositionsLabel();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"ResyncFromNT8 error: {ex.Message}");
+            }
         }
 
         private void ListenLoop()

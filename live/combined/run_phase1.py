@@ -111,7 +111,8 @@ def wire_paper_engines(b5, b20):
             p = rv.position
             extra = f"SL={p.stop_price:.2f} TP={p.target_price:.2f}"
         _log("RV", sig.event, d, sig.price, 1, sig.reason, sig.timestamp, extra)
-    rv.subscribe(_on_rv)
+    # NOTE: do NOT subscribe _on_rv directly to rv. Coordinator (Phase 5)
+    # will route signals through no-hedge filter then call _on_rv. See below.
     b20.subscribe(rv.on_bar)
 
     # ---- B2 ----
@@ -129,7 +130,7 @@ def wire_paper_engines(b5, b20):
             p = b2.position
             extra = f"yellow={p.yellow_val:.2f} green={p.green_val:.2f}"
         _log("B2", sig.event, d, sig.price, sig.qty, sig.reason, sig.timestamp, extra)
-    b2.subscribe(_on_b2)
+    # (coordinator routes; not subscribed directly)
     # B2 needs (bar, current_atr_y). We compute ATR online via a simple wrapper.
     from live.combined.od_engine import _ATR
     b2_atr = _ATR(length=14)
@@ -155,10 +156,9 @@ def wire_paper_engines(b5, b20):
         extra = ""
         if sig.event == "ENTRY" and od.position is not None:
             p = od.position
-            # OD green is computed dynamically per-bar; show initial yellow only
             extra = f"yellow={p.yellow_val:.2f} (TP green decays per bar)"
         _log("OD", sig.event, d, sig.price, sig.qty, sig.reason, sig.timestamp, extra)
-    od.subscribe(_on_od)
+    # (coordinator routes; not subscribed directly)
     b20.subscribe(od.on_20min_bar)
 
     # ---- Fabio ORB ----
@@ -170,13 +170,14 @@ def wire_paper_engines(b5, b20):
             p = fb.position
             extra = f"SL={p.sl_price:.2f} TP={p.tp_price:.2f} (4R)"
         _log("FB", sig.event, d, sig.price, sig.qty, sig.reason, sig.timestamp, extra)
-    fb.subscribe(_on_fb)
+    # (coordinator routes; not subscribed directly)
     b5.subscribe(fb.on_5min_bar)
 
     print(f"  [paper] wired RV+B2+OD+Fabio (WARMUP mode — logging suppressed).")
     return {"engines": {"RV": rv, "B2": b2, "OD": od, "FB": fb},
             "log_files": log_files,
-            "set_live_mode": set_live_mode}
+            "set_live_mode": set_live_mode,
+            "paper_callbacks": {"RV": _on_rv, "B2": _on_b2, "OD": _on_od, "FB": _on_fb}}
 
 
 def make_print_handler(name: str, max_to_print: int = 5):
@@ -331,19 +332,39 @@ def run_live(execute_to_nt8: bool = False):
     paper_logs["set_live_mode"]()
     print(f"[run_phase1] PAPER engines now in LIVE mode — signals will print + log to CSV.\n")
 
+    # ===== Build the Coordinator (Phase 5) =====
+    # Routes engine signals through no-hedge filter before reaching downstream
+    # consumers (paper logger, NT8 executor). Blocks SECOND entries that would
+    # hedge an already-open position in another strategy.
+    from live.combined.coordinator import Coordinator
+    coord = Coordinator()
+    coord.load_state()   # restore if fresh (< 5 min old)
+    eng = paper_logs["engines"]
+    paper_cbs = paper_logs["paper_callbacks"]
+
     # ===== Wire NT8 executor (if --execute) =====
     nt8 = None
+    nt8_cbs = {"RV": None, "B2": None, "OD": None, "FB": None}
     if execute_to_nt8:
         try:
             from live.combined.nt8_executor import NT8Executor
-            eng = paper_logs["engines"]
             nt8 = NT8Executor()
-            nt8.wire_to_engines(eng["RV"], eng["B2"], eng["OD"], eng["FB"])
+            nt8_cbs = nt8.get_callbacks(eng["RV"], eng["B2"], eng["OD"], eng["FB"])
             nt8.start_heartbeat()
             print(f"[run_phase1] NT8 EXECUTE wired — orders + heartbeat active.\n")
         except Exception as e:
             print(f"[run_phase1] FAILED to wire NT8 executor: {e}")
             print(f"  Continuing in paper-only mode.")
+
+    # Coordinator subscribes to each engine. Approved signals go to paper
+    # logger + NT8 callback (if --execute). Blocked signals are dropped
+    # (with rollback of the engine's phantom position).
+    for strat_name in ("RV", "B2", "OD", "FB"):
+        downstream = [paper_cbs[strat_name]]
+        if nt8_cbs[strat_name] is not None:
+            downstream.append(nt8_cbs[strat_name])
+        coord.register(strat_name, eng[strat_name], *downstream)
+    print(f"[run_phase1] COORDINATOR wired — no-hedge rule active across 4 strats.\n")
 
     # ===== Session backfill (T+30 and T+60) — fills pre-startup session gap =====
     # If you start after 18:00 ET (mid-session), Databento Historical has the
@@ -381,6 +402,23 @@ def run_live(execute_to_nt8: bool = False):
               f"entries={getattr(e, 'n_entries', 0):>3}  "
               f"exits={getattr(e, 'n_exits', 0):>3}")
     print(f"  Logs: {paper_logs['log_files']['RV'].parent}")
+    # Coordinator stats + persist state
+    cs = coord.summary()
+    print(f"\nCoordinator stats:")
+    print(f"  Approved: {cs['approved']}   Blocked by no-hedge: {cs['blocked']}")
+    if cs['currently_open']:
+        print(f"  Open positions at shutdown: {cs['currently_open']}")
+    if cs['blocked_log']:
+        print(f"  Last 3 blocked signals:")
+        for b in cs['blocked_log'][-3:]:
+            print(f"    {b['ts']}  {b['strat']} {b['direction']} blocked by "
+                  f"{b['blocked_by']}={b['blocked_by_dir']}")
+    try:
+        coord.save_state()
+        print(f"  [coord] state saved.")
+    except Exception as e:
+        print(f"  [coord] state save failed: {e}")
+
     if nt8 is not None:
         s = nt8.summary()
         print(f"\nNT8 executor stats:")

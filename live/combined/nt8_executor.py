@@ -160,9 +160,93 @@ class NT8Executor:
         return True
 
     # ---------- engine wiring ----------
+    def get_callbacks(self, rv, b2, od, fb) -> dict:
+        """Return per-strategy callbacks WITHOUT subscribing them directly.
+        Caller (typically the Coordinator) is responsible for routing engine
+        signals through these callbacks. Lets coordinator filter blocked
+        signals before they reach NT8.
+
+        Returns {strat_name: callback(sig)}.
+        """
+        # Stash engine refs for the closures
+        self._engines_ref = {"RV": rv, "B2": b2, "OD": od, "FB": fb}
+        # ---- RV ----
+        def on_rv(sig):
+            d = ("LONG" if sig.direction.name == "LONG"
+                 else "SHORT" if sig.direction.name == "SHORT" else "FLAT")
+            if sig.event == "ENTRY" and rv.position is not None:
+                p = rv.position
+                self.send_entry(
+                    strat="RV", direction=d, qty=1,
+                    sl_price=p.stop_price, tp_price=p.target_price,
+                    entry_ts=sig.timestamp, entry_price=sig.price,
+                )
+            elif sig.event == "EXIT":
+                if sig.reason == "force_close":
+                    for tag, op in list(self._open.items()):
+                        if op.strat == "RV":
+                            self.send_close_tag(tag, sig.reason)
+                            break
+        # ---- B2 ----
+        def on_b2(sig):
+            d = ("LONG" if sig.direction.name == "LONG"
+                 else "SHORT" if sig.direction.name == "SHORT" else "FLAT")
+            if sig.event == "ENTRY" and b2.position is not None:
+                p = b2.position
+                self.send_entry(
+                    strat="B2", direction=d, qty=sig.qty,
+                    sl_price=None, tp_price=p.green_val,
+                    entry_ts=sig.timestamp, entry_price=sig.price,
+                )
+            elif sig.event == "EXIT":
+                if sig.reason == "TP_FIXED":
+                    for tag, op in list(self._open.items()):
+                        if op.strat == "B2" and op.direction == d:
+                            self._open.pop(tag, None)
+                            self.n_exits_sent += 1
+                            print(f"  [nt8] B2 TP_FIXED — NT8 already filled resting limit; tag cleared locally: {tag}")
+                            break
+                else:
+                    for tag, op in list(self._open.items()):
+                        if op.strat == "B2" and op.direction == d:
+                            self.send_close_tag(tag, sig.reason)
+                            break
+        # ---- OD ----
+        def on_od(sig):
+            d = "LONG" if sig.direction.name == "LONG" else "FLAT"
+            if sig.event == "ENTRY" and od.position is not None:
+                self.send_entry(
+                    strat="OD", direction=d, qty=sig.qty,
+                    entry_ts=sig.timestamp, entry_price=sig.price,
+                )
+            elif sig.event == "EXIT":
+                for tag, op in list(self._open.items()):
+                    if op.strat == "OD":
+                        self.send_close_tag(tag, sig.reason)
+                        break
+        # ---- Fabio ----
+        def on_fb(sig):
+            d = "LONG"
+            if sig.event == "ENTRY" and fb.position is not None:
+                p = fb.position
+                self.send_entry(
+                    strat="FB", direction=d, qty=sig.qty,
+                    sl_price=p.sl_price, tp_price=p.tp_price,
+                    entry_ts=sig.timestamp, entry_price=sig.price,
+                )
+            elif sig.event == "EXIT":
+                if sig.reason == "EOD":
+                    for tag, op in list(self._open.items()):
+                        if op.strat == "FB":
+                            self.send_close_tag(tag, sig.reason)
+                            break
+        print(f"[nt8] callbacks created for RV+B2+OD+Fabio (coordinator will route)")
+        return {"RV": on_rv, "B2": on_b2, "OD": on_od, "FB": on_fb}
+
     def wire_to_engines(self, rv, b2, od, fb) -> None:
-        """Attach as a signal subscriber to each engine. ENTRYs send orders;
-        EXITs send close-by-tag (for B2/OD; bracket auto-handles RV/Fabio)."""
+        """LEGACY: subscribes callbacks directly to engines (no coordinator).
+        Kept for backward compat / debugging. Use get_callbacks() with
+        Coordinator instead."""
 
         # Map (strat, direction, entry_ts) → tag so we can find tag on EXIT
         tag_by_position: dict[tuple, str] = {}
