@@ -1,0 +1,314 @@
+"""
+ThetaData QQQ options downloader for gamma-level backtesting (v3 API).
+
+Pulls the data needed to compute MenthorQ-style gamma levels:
+  - Call Resistance, Put Support, HVL/Gamma Flip, GEX 1-10
+  - Both EOD (one snapshot at 17:15 ET) and intraday (every 30 min)
+
+Prerequisites:
+  1. Java 21+ installed
+  2. ThetaTerminalv3.jar downloaded and creds.txt next to it
+  3. Terminal running:  java -jar ThetaTerminalv3.jar
+  4. pip install httpx pandas
+
+v3 API improvements we lean on:
+  - expiration=* wildcard pulls every expiration in one call
+  - Single response (no pagination)
+  - ndjson format streams cleanly into pandas
+  - Greeks include underlying price per row
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import io
+from dataclasses import dataclass
+
+import httpx
+import pandas as pd
+
+# v3 uses port 25503 (v2 used 25510)
+BASE_URL = "http://127.0.0.1:25503/v3"
+HTTP_TIMEOUT = 120.0  # bulk wildcard requests can be large
+
+# MenthorQ-style snapshot times: 8am pre-market + every 30 min from 9:50
+INTRADAY_SNAPSHOT_TIMES = [
+    "08:00", "09:50", "10:20", "10:50", "11:20", "11:50",
+    "12:20", "12:50", "13:20", "13:50", "14:20", "14:50",
+    "15:20", "15:50",
+]
+
+
+# ------------------------------ HTTP helpers ------------------------------
+
+def _get_ndjson(path: str, params: dict) -> pd.DataFrame:
+    """Hit a v3 endpoint with format=ndjson and return a DataFrame."""
+    p = {**params, "format": "ndjson"}
+    url = f"{BASE_URL}{path}"
+    r = httpx.get(url, params=p, timeout=HTTP_TIMEOUT)
+    r.raise_for_status()
+    if not r.text.strip():
+        return pd.DataFrame()
+    return pd.read_json(io.StringIO(r.text), lines=True)
+
+
+# ------------------------------ List endpoints ------------------------------
+
+def list_expirations(symbol: str = "QQQ") -> list[dt.date]:
+    """All available expiration dates for a symbol, as date objects.
+    v3 returns them as ISO strings ('2026-04-24'); we parse to dt.date."""
+    df = _get_ndjson("/option/list/expirations", {"symbol": symbol})
+    if df.empty or "expiration" not in df.columns:
+        return []
+    return pd.to_datetime(df["expiration"]).dt.date.tolist()
+
+
+def expirations_within(symbol: str, today: dt.date, days: int = 60) -> list[dt.date]:
+    """Filter expirations to those within `days` of today."""
+    cutoff = today + dt.timedelta(days=days)
+    return [e for e in list_expirations(symbol) if today <= e <= cutoff]
+
+
+# ------------------------------ History endpoints ------------------------------
+# In v3, omitting strike/right returns all strikes/rights.
+# Setting expiration='*' returns all expirations.
+# So one call pulls the entire chain across the curve.
+
+def history_quote(symbol: str, date: dt.date,
+                  expiration: str | int = "*",
+                  interval: str = "30m") -> pd.DataFrame:
+    return _get_ndjson("/option/history/quote", {
+        "symbol": symbol, "expiration": expiration,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+        "interval": interval,
+    })
+
+
+def history_greeks_second_order(symbol: str, date: dt.date,
+                                expiration: str | int = "*",
+                                interval: str = "30m") -> pd.DataFrame:
+    """Second-order greeks (gamma, vanna, charm, vomma). Gamma source for GEX."""
+    return _get_ndjson("/option/history/greeks/second_order", {
+        "symbol": symbol, "expiration": expiration,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+        "interval": interval,
+    })
+
+
+def history_greeks_first_order(symbol: str, date: dt.date,
+                               expiration: str | int = "*",
+                               interval: str = "30m") -> pd.DataFrame:
+    return _get_ndjson("/option/history/greeks/first_order", {
+        "symbol": symbol, "expiration": expiration,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+        "interval": interval,
+    })
+
+
+def history_open_interest(symbol: str, date: dt.date,
+                          expiration: str | int = "*") -> pd.DataFrame:
+    return _get_ndjson("/option/history/open_interest", {
+        "symbol": symbol, "expiration": expiration,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+    })
+
+
+def history_eod(symbol: str, date: dt.date,
+                expiration: str | int = "*") -> pd.DataFrame:
+    """ThetaData's synthetic 17:15 ET EOD report — last NBBO, OHLC, vol, OI."""
+    return _get_ndjson("/option/history/eod", {
+        "symbol": symbol, "expiration": expiration,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+    })
+
+
+def history_greeks_eod(symbol: str, date: dt.date,
+                       expiration: str | int = "*") -> pd.DataFrame:
+    """EOD greeks (incl. gamma) at the 17:15 ET settle. Standard-tier accessible,
+    accepts expiration='*' for the full chain in one call."""
+    return _get_ndjson("/option/history/greeks/eod", {
+        "symbol": symbol, "expiration": expiration,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+    })
+
+
+def stock_history_quote(symbol: str, date: dt.date,
+                        interval: str = "30m") -> pd.DataFrame:
+    return _get_ndjson("/stock/history/quote", {
+        "symbol": symbol,
+        "start_date": date.strftime("%Y%m%d"),
+        "end_date": date.strftime("%Y%m%d"),
+        "interval": interval,
+    })
+
+
+# ------------------------------ Snapshot orchestration ------------------------------
+
+@dataclass
+class ChainSnapshot:
+    timestamp: pd.Timestamp
+    spot: float
+    chain: pd.DataFrame
+
+
+def fetch_full_day(symbol: str, date: dt.date) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """One trip: full day's 30-min greeks chain + daily OI."""
+    greeks = history_greeks_second_order(symbol, date, expiration="*", interval="30m")
+    oi = history_open_interest(symbol, date, expiration="*")
+    return greeks, oi
+
+
+def _seconds_of_day(df: pd.DataFrame) -> pd.Series:
+    """Normalize whatever time column the response uses into seconds since midnight."""
+    if "ms_of_day" in df.columns:
+        return df["ms_of_day"] / 1000.0
+    if "time" in df.columns:
+        t = pd.to_datetime(df["time"], errors="coerce")
+        return t.dt.hour * 3600 + t.dt.minute * 60 + t.dt.second
+    raise KeyError("No recognized time column in response")
+
+
+def snapshot_at(greeks_day: pd.DataFrame, oi_day: pd.DataFrame,
+                snapshot_time: str) -> ChainSnapshot:
+    """Pick the row closest to `snapshot_time` (HH:MM), join OI."""
+    if greeks_day.empty:
+        return ChainSnapshot(pd.Timestamp.now(), float("nan"), pd.DataFrame())
+
+    hh, mm = map(int, snapshot_time.split(":"))
+    target = hh * 3600 + mm * 60
+
+    df = greeks_day.copy()
+    df["_secs"] = _seconds_of_day(df)
+    df["_diff"] = (df["_secs"] - target).abs()
+    nearest = (df.sort_values("_diff")
+                 .drop_duplicates(subset=["strike", "right", "expiration"], keep="first")
+                 .drop(columns=["_diff", "_secs"]))
+
+    if not oi_day.empty:
+        nearest = nearest.merge(
+            oi_day[["strike", "right", "expiration", "open_interest"]],
+            on=["strike", "right", "expiration"], how="left",
+        )
+
+    spot = float(nearest["underlying_price"].iloc[0]) if "underlying_price" in nearest.columns and not nearest.empty else float("nan")
+    date_str = str(nearest["date"].iloc[0]) if "date" in nearest.columns and not nearest.empty else ""
+    ts = pd.Timestamp(f"{date_str} {snapshot_time}", errors="coerce")
+    return ChainSnapshot(timestamp=ts, spot=spot, chain=nearest)
+
+
+# ------------------------------ GEX & level math ------------------------------
+
+def compute_gex_by_strike(chain: pd.DataFrame) -> pd.DataFrame:
+    """Net GEX = sum over strikes of (gamma * OI * 100 * spot²),
+    with puts negated (dealer perspective)."""
+    if chain.empty or "gamma" not in chain.columns:
+        return pd.DataFrame()
+    df = chain.copy()
+    df["signed_gex"] = df["gamma"] * df["open_interest"].fillna(0) * 100
+    df.loc[df["right"] == "put", "signed_gex"] *= -1
+    spot = df["underlying_price"].iloc[0]
+    df["signed_gex"] *= spot ** 2
+    return (df.groupby("strike")["signed_gex"].sum()
+              .reset_index().rename(columns={"signed_gex": "net_gex"})
+              .sort_values("strike"))
+
+
+def extract_levels(gex_by_strike: pd.DataFrame, spot: float) -> dict:
+    if gex_by_strike.empty:
+        return {}
+    above = gex_by_strike[gex_by_strike["strike"] >= spot]
+    below = gex_by_strike[gex_by_strike["strike"] <= spot]
+
+    call_resistance = (above.loc[above["net_gex"].idxmax(), "strike"]
+                       if not above.empty else None)
+    put_support = (below.loc[below["net_gex"].idxmin(), "strike"]
+                   if not below.empty else None)
+
+    sorted_g = gex_by_strike.sort_values("strike").reset_index(drop=True)
+    sorted_g["cum_gex"] = sorted_g["net_gex"].cumsum()
+    sign = sorted_g["cum_gex"].apply(lambda v: 1 if v > 0 else -1)
+    flip_rows = sorted_g[sign.diff().abs() > 0]
+    hvl = float(flip_rows.iloc[0]["strike"]) if not flip_rows.empty else None
+
+    top10 = (gex_by_strike.reindex(
+                gex_by_strike["net_gex"].abs().sort_values(ascending=False).index)
+             .head(10))
+    gex_levels = {f"GEX_{i+1}": float(s) for i, s in enumerate(top10["strike"].values)}
+
+    return {
+        "call_resistance": float(call_resistance) if call_resistance is not None else None,
+        "put_support":     float(put_support) if put_support is not None else None,
+        "hvl":             hvl,
+        **gex_levels,
+    }
+
+
+# ------------------------------ QQQ -> NQ ------------------------------
+
+def convert_qqq_to_nq(qqq_level: float, qqq_spot: float, nq_spot: float) -> float:
+    return qqq_level * (nq_spot / qqq_spot)
+
+
+# ------------------------------ Drivers ------------------------------
+
+def daily_eod_levels(date: dt.date, symbol: str = "QQQ",
+                     lookahead_days: int = 60) -> dict:
+    """EOD gamma levels for one day. Picks the 30m bar nearest 16:00 ET.
+
+    Uses first-order greeks (Standard plan) and loops over expirations within
+    `lookahead_days` because the greeks endpoints reject expiration='*'."""
+    oi = history_open_interest(symbol, date, expiration="*")
+    exps = expirations_within(symbol, date, days=lookahead_days)
+    if not exps:
+        return {"date": date, "error": "no expirations in window"}
+
+    parts = []
+    for exp in exps:
+        df = history_greeks_first_order(symbol, date, expiration=exp.strftime("%Y%m%d"),
+                                        interval="30m")
+        if not df.empty:
+            parts.append(df)
+    if not parts:
+        return {"date": date, "error": "no greeks data"}
+    greeks = pd.concat(parts, ignore_index=True)
+
+    df = greeks.copy()
+    df["_secs"] = _seconds_of_day(df)
+    df["_diff"] = (df["_secs"] - 16 * 3600).abs()
+    eod_greeks = (df.sort_values("_diff")
+                    .drop_duplicates(subset=["strike", "right", "expiration"], keep="first")
+                    .drop(columns=["_diff", "_secs"]))
+
+    chain = eod_greeks.merge(
+        oi[["strike", "right", "expiration", "open_interest"]],
+        on=["strike", "right", "expiration"], how="left",
+    )
+    gex = compute_gex_by_strike(chain)
+    spot = float(chain["underlying_price"].iloc[0]) if not chain.empty else float("nan")
+    return {"date": date, "spot": spot, **extract_levels(gex, spot)}
+
+
+def intraday_levels_for_day(date: dt.date, symbol: str = "QQQ") -> pd.DataFrame:
+    """30-min snapshots for the full trading day."""
+    greeks_day, oi_day = fetch_full_day(symbol, date)
+    rows = []
+    for snap_time in INTRADAY_SNAPSHOT_TIMES:
+        snap = snapshot_at(greeks_day, oi_day, snap_time)
+        gex = compute_gex_by_strike(snap.chain)
+        levels = extract_levels(gex, snap.spot)
+        rows.append({"timestamp": snap.timestamp, "spot": snap.spot, **levels})
+    return pd.DataFrame(rows)
+
+
+if __name__ == "__main__":
+    print("QQQ expirations sample (first 10 upcoming):")
+    today = dt.date.today()
+    upcoming = [e for e in list_expirations("QQQ") if e >= today][:10]
+    for e in upcoming:
+        print(" ", e)

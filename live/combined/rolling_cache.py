@@ -206,7 +206,19 @@ class RollingWarmstartCache:
         return len(bars)
 
     def prune_old(self, today: dt.date) -> list[dt.date]:
+        """Delete cached pickles older than the keep window.
+
+        NEVER deletes the current OR next-upcoming session date — those are
+        either being built live right now (today's RTH session) or about to
+        start (next CME session after 18:00 ET). Backfill thread relies on
+        these pickles existing.
+        """
         keep = set(self.needed_dates(today))
+        # Always preserve today (current RTH session) AND tomorrow (next CME
+        # session that opens at 18:00 ET today — already in progress if we're
+        # past 18:00 ET).
+        keep.add(today)
+        keep.add(today + dt.timedelta(days=1))
         pruned = []
         for d in self.cached_dates():
             if d not in keep:

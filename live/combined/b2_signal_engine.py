@@ -107,8 +107,10 @@ class B2SignalEngine:
     def __init__(self, b2_engine: B2Engine,
                  gamma_parquet: Path | str = Path("D:/trading_pythonbacktest_data/menthorq_levels_nq.parquet")):
         self.b2 = b2_engine
-        self._gp = pd.read_parquet(gamma_parquet)
-        self._gp["date"] = pd.to_datetime(self._gp["date"]).dt.date
+        self._gamma_parquet_path = Path(gamma_parquet)
+        self._gp_mtime: float = 0.0
+        self._gp = None     # lazy-loaded via _maybe_reload_parquet()
+        self._maybe_reload_parquet()
 
         # Per-session state
         self._session_date: Optional[dt.date] = None
@@ -139,8 +141,38 @@ class B2SignalEngine:
         self.n_blocked_delta = 0
         self.n_blocked_confirm = 0
 
+    def _maybe_reload_parquet(self) -> bool:
+        """Re-read gamma parquet if its mtime changed since last load.
+        Also pushes any new qqq_gamma_sign rows into the B2Engine's dict.
+        Returns True if reloaded, False if no change."""
+        try:
+            mt = self._gamma_parquet_path.stat().st_mtime
+        except FileNotFoundError:
+            return False
+        if mt == self._gp_mtime:
+            return False
+        self._gp = pd.read_parquet(self._gamma_parquet_path)
+        self._gp["date"] = pd.to_datetime(self._gp["date"]).dt.date
+        self._gp_mtime = mt
+        # Push gamma_sign rows into B2Engine (covers new dates added since last load)
+        if "qqq_gamma_sign" in self._gp.columns:
+            for d, sign in zip(self._gp["date"], self._gp["qqq_gamma_sign"]):
+                if pd.notna(sign):
+                    self.b2.set_gamma_sign(d, int(sign))
+        print(f"  [b2_signal_engine] reloaded gamma parquet "
+              f"({len(self._gp)} rows, latest {self._gp['date'].max()})")
+        return True
+
     def _reset_session(self, session_date: dt.date) -> None:
-        """Start a new session. Reset bias, OHI/OLO, ATR, pending."""
+        """Start a new session. Reset bias, OHI/OLO, ATR, pending.
+
+        Also checks the gamma parquet for updates (hot-reload). This lets
+        new gamma rows (added by run_daily.py after engine startup) take
+        effect on the next session boundary without requiring an engine
+        restart."""
+        # Hot-reload check before loading levels for the new session
+        self._maybe_reload_parquet()
+
         self._session_date = session_date
         self._ohi = None
         self._olo = None
@@ -150,6 +182,10 @@ class B2SignalEngine:
         self._pending = None
         self._last_rth_bar = None
         self._rth_bars_seen = 0
+        # Flag — flips True when we do the morning reload at first RTH bar
+        # (lets gamma rows added by 8 AM run_daily.py be picked up before RTH
+        # opens, so Wed's session can use Tue's freshly-added gamma).
+        self._did_rth_reload = False
         # ATR carries across sessions (Pine convention)
         self._levels = self._load_levels_for_session(session_date)
 
@@ -201,6 +237,22 @@ class B2SignalEngine:
         # Must be RTH (>=09:30, <17:00 ET) for signal logic.
         if not (dt.time(9, 30) <= bar_t < dt.time(17, 0)):
             return
+
+        # MORNING RELOAD — fires ONCE per session at the first RTH bar.
+        # If gamma_refresh added new rows since startup (typical: 8 AM task
+        # adds yesterday's row), this picks them up before any RTH signal
+        # fires. Matches backtest's "use freshest prior-day gamma" behavior.
+        if not self._did_rth_reload:
+            self._did_rth_reload = True
+            reloaded = self._maybe_reload_parquet()
+            if reloaded:
+                # Re-pick prior-day levels with the updated parquet
+                new_levels = self._load_levels_for_session(self._session_date)
+                if new_levels is not None:
+                    self._levels = new_levels
+                    print(f"  [b2_signal_engine] RTH morning reload: {len(new_levels)} levels "
+                          f"loaded for session {self._session_date}")
+
         if self._ohi is None or self._levels is None:
             return  # no overnight range or no gamma levels — can't trade
 
@@ -394,27 +446,35 @@ class B2SignalEngine:
                 self._pending = None; self.n_blocked_confirm += 1
                 return
 
-        # Passed confirmation. Entry will fire at the NEXT bar's close (T+2 in
-        # signal study). We can't know NEXT bar's price yet — schedule the
-        # entry for the next 5-min boundary. The B2Engine's _try_fire_pending
-        # picks it up on the matching 20-min bar.
-        #
-        # entry_time = T+2's open = conf_ts + 5 min
+        # Confirmation passed. FIRE ENTRY IMMEDIATELY at conf bar close time.
+        # entry_price = conf_bar.close (matches backtest's "next bar open"
+        # within ~1 tick, since next bar opens at conf close instant).
+        # We use 20-min ATR from B2Engine (not local 5-min ATR) so yellow/green
+        # match backtest's `bars20["atr_y"]` calculation.
         entry_time = conf_ts + pd.Timedelta(minutes=5)
-        # entry_price approx = conf_bar.close (B2 enters at next bar's open ≈ this close).
-        # We'll refine at fire-time but the queue accepts this for now.
         entry_price = conf_bar.close
 
-        # ATR(14) on 20-min bars — we don't have it here, but B2Engine has its own.
-        # Pass None; B2Engine will fall back to last bar's ATR.
-        self.b2.set_pending_entry(
-            entry_time=entry_time,
-            direction=pend.direction,
-            entry_price=entry_price,
-            atr_y=atr_5m,    # placeholder — B2Engine should use 20-min ATR
-        )
-        self.n_signals_emitted += 1
-        self._pending = None
+        atr_y_20m = getattr(self.b2, "_last_atr_20m", None)
+        if atr_y_20m is None or atr_y_20m <= 0:
+            # No 20-min ATR yet (first 14 20-min bars of session not warmed).
+            # Skip entry — matches backtest behavior (it requires init_atr_y
+            # to be non-NaN).
+            print(f"  [B2-SIG] {entry_time.strftime('%Y-%m-%d %H:%M')} {pend.direction} "
+                  f"near={pend.near_level:.2f} -- SKIPPED (no 20-min ATR yet)")
+            self._pending = None
+            return
+
         print(f"  [B2-SIG] {entry_time.strftime('%Y-%m-%d %H:%M')} {pend.direction} "
               f"near={pend.near_level:.2f} pinbar={pend.pinbar_ratio:.2f} "
-              f"abs_delta_w15={pend.abs_delta_w15:+.0f} conf_delta_half_w5={best_conf_delta:+.0f}")
+              f"abs_delta_w15={pend.abs_delta_w15:+.0f} conf_delta_half_w5={best_conf_delta:+.0f} "
+              f"atr_20m={atr_y_20m:.2f}")
+
+        fired = self.b2.fire_entry_from_signal(
+            direction=pend.direction,
+            entry_price=entry_price,
+            atr_y=atr_y_20m,
+            ts=entry_time,
+        )
+        if fired:
+            self.n_signals_emitted += 1
+        self._pending = None

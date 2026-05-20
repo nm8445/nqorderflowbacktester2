@@ -1,0 +1,39 @@
+loading NQ bars...
+  range: 2020-12-01 00:01:00-05:00 -> 2025-12-01 00:00:00-05:00
+profile files: 1366
+  200/1366  elapsed=13s  rows=191
+  600/1366  elapsed=49s  rows=549
+  800/1366  elapsed=64s  rows=738
+  1000/1366  elapsed=83s  rows=932
+  1200/1366  elapsed=108s  rows=1120
+
+wrote C:\trading\nqorderflowbacktester\scripts\orderflowmarketcontext\poc regime results\scripts\value_area_per_day.parquet  (1200 rows)
+
+valid sample (with 2 prior VAs): 1198
+date range: 2020-12-03 -> 2025-11-26
+
+Significance markers: * p<0.05, ** p<0.01, *** p<0.001
+cohort                                                                     n (%base)  P(up)      P(down)         mean   median      t      p
+
+==================================================================================================================================
+BASELINE
+==================================================================================================================================
+  ALL valid days                                                          n=1198 (100.0%)  P(up)=54.3%  P(down)=45.7%  mean= +2.18  med=+14.88  t=+0.39  p=0.6985     
+
+==================================================================================================================================
+BEARISH SETUP — VAH(D-1) < VAL(D-2)   (n=253, 21.1% of valid days)
+==================================================================================================================================
+  ALL bearish-setup days                                                  n= 253 (21.1%)  P(up)=57.7%  P(down)=42.3%  mean=+26.71  med=+53.00  t=+2.10  p=0.0363    *
+    + open in [VAL(D-1), POC(D-1)] (lower half of D-1 VA)                 n=  41 ( 3.4%)  P(up)=56.1%  P(down)=43.9%  mean= +6.45  med=+21.25  t=+0.22  p=0.8247     
+    + open in [POC(D-1), VAH(D-1)] (upper half of D-1 VA)                 n=  54 ( 4.5%)  P(up)=61.1%  P(down)=38.9%  mean=+29.30  med=+53.50  t=+1.17  p=0.2476     
+    + open below VAL(D-1)  (bonus — gap-down through D-1 VA)              n=  70 ( 5.8%)  P(up)=57.1%  P(down)=42.9%  mean=+66.18  med=+71.00  t=+2.70  p=0.0088   **
+    + open above VAH(D-1)  (bonus — gap-up through D-1 VA)                n=  88 ( 7.3%)  P(up)=56.8%  P(down)=43.2%  mean= +3.16  med=+48.75  t=+0.14  p=0.8907     
+
+==================================================================================================================================
+BULLISH SETUP — VAL(D-1) > VAH(D-2)   (n=314, 26.2% of valid days)
+==================================================================================================================================
+  ALL bullish-setup days                                                  n= 314 (26.2%)  P(up)=55.7%  P(down)=43.9%  mean= +8.20  med=+16.00  t=+0.94  p=0.3470     
+    + open above VAH(D-1)                                                 n= 138 (11.5%)  P(up)=52.9%  P(down)=47.1%  mean= +4.85  med=+14.50  t=+0.38  p=0.7063     
+    + open in [POC(D-1), VAH(D-1)] (upper half of D-1 VA)                 n=  44 ( 3.7%)  P(up)=61.4%  P(down)=38.6%  mean= +5.77  med=+20.50  t=+0.23  p=0.8205     
+    + open in [VAL(D-1), POC(D-1)] (lower half of D-1 VA)                 n=  65 ( 5.4%)  P(up)=56.9%  P(down)=43.1%  mean=+12.08  med=+13.50  t=+0.65  p=0.5203     
+    + open below VAL(D-1)  (bonus — gap-down through D-1 VA)              n=  68 ( 5.7%)  P(up)=55.9%  P(down)=42.6%  mean=+10.59  med=+21.88  t=+0.55  p=0.5848     

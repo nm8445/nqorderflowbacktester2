@@ -1,6 +1,21 @@
 # NQ Order Flow Backtester
 
-A tick-level backtesting and orderflow analysis framework for NQ futures using Databento MBP-1 data from CME Globex. Signals are generated in Python and will be sent via HTTP to a NinjaTrader 8 strategy for execution.
+A tick-level backtesting and orderflow analysis framework for NQ futures using Databento MBP-1 data from CME Globex. Signals are generated in Python and sent via HTTP to a NinjaTrader 8 add-on for execution.
+
+## 🚀 Live Trading Ready
+
+**Analysis:** NQ.c.0 order flow (better liquidity, more reliable data)
+**Execution:** MNQ (Micro NQ - 1/10th risk, same price levels)
+
+- ✅ **Live signal generator** → Databento live API → Python signal detection → NT8 HTTP
+- ✅ **NT8 add-on** → Receives signals, displays alerts, optional auto-execution
+- ✅ **Complete setup guide** → See [LIVE_TRADING_SETUP.md](LIVE_TRADING_SETUP.md)
+- ✅ **NQ vs MNQ reference** → See [NQ_vs_MNQ_REFERENCE.md](NQ_vs_MNQ_REFERENCE.md)
+
+**Quick start:**
+1. Start NT8 add-on (compile `nt8/NQOrderFlowSignalReceiver.cs`)
+2. Run `run_live_signals.bat` or `python src/nqbt/live/signal_generator.py`
+3. Trade during 9:30-11:00 AM ET
 
 ---
 
@@ -11,9 +26,26 @@ nqorderflowbacktester/
 ├── pyproject.toml
 ├── .env                          # DATABENTO_API_KEY (not committed)
 ├── .env.example
+├── run_live_signals.bat          # Quick launcher for live signal generator
+├── docs/                         # 📄 Documentation & guides
+│   ├── LIVE_TRADING_SETUP.md     # Complete live trading setup
+│   ├── LIVE_STRATEGY_LOCKED.md   # Final locked strategy parameters
+│   ├── NQ_vs_MNQ_REFERENCE.md    # NQ vs MNQ contract comparison
+│   ├── OPTIMIZATION_GUIDE.md     # Optimization best practices
+│   └── ...                       # Other strategy & setup guides
+├── results/                      # 📊 Backtest results & analysis
+│   ├── csv/                      # Optimization results, trade logs
+│   └── html/                     # Equity curves, PnL calendars
+├── logs/                         # 📝 Script execution logs
 ├── data/                         # Cached .dbn files (auto-created, gitignored)
 ├── output/                       # Script output files (auto-created)
+├── nt8/
+│   └── NQOrderFlowSignalReceiver.cs  # NinjaTrader 8 signal receiver add-on
 ├── scripts/
+│   ├── cache_creation_scripts/   # Data cache builders
+│   │   ├── build_daily_profile_cache.py     # Daily EOD profiles
+│   │   ├── build_signal_cache.py            # RTH signals
+│   │   └── build_signal_cache_full_session.py  # Full session signals
 │   ├── fetch_sample.py           # Verify data access
 │   ├── preview_ticks.py          # Preview normalized tick table
 │   ├── validate_window.py        # View raw ticks for a specific time window
@@ -30,6 +62,7 @@ nqorderflowbacktester/
     ├── analysis/
     │   ├── volume_profile.py     # Developing volume profile with POC, VAH, VAL
     │   ├── range_bars.py         # 40-range volumetric bars with internal profile
+    │   ├── range_bars_streaming.py  # Streaming bar builder for live data
     │   ├── vwap.py               # Anchored VWAP with 3 standard deviation bands
     │   ├── absorption.py         # Absorption signal detector (6 methods, bar-based)
     │   ├── features.py           # 10-feature computation per 40-range bar for HMM
@@ -37,6 +70,8 @@ nqorderflowbacktester/
     ├── studies/
     │   ├── base.py               # BaseStudy, StudyResult, Param — study interface
     │   └── registry.py           # All 24 research studies registered across 7 blocks
+    ├── live/
+    │   └── signal_generator.py   # Live signal generator (Databento → NT8)
     └── backtest/
         └── engine.py             # BacktestEngine, Strategy protocol, Position, Quote, Trade
 ```

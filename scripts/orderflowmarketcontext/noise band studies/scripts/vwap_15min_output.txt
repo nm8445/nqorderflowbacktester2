@@ -1,0 +1,44 @@
+loading 15min RTH bars...
+  bar-days: 1516
+  band-days: 1114
+
+  200/1114  elapsed=0s  trades=688
+  400/1114  elapsed=0s  trades=1170
+  600/1114  elapsed=0s  trades=1857
+  800/1114  elapsed=1s  trades=2462
+  1000/1114  elapsed=1s  trades=3063
+
+wrote C:\trading\nqorderflowbacktester\scripts\orderflowmarketcontext\noise band studies\scripts\vwap_stop_trades_15min.parquet  (3386 trades)
+
+sample span: 2021-04-19 -> 2025-11-26 (4.61 years)
+
+==============================================================================================================
+OVERALL (15min) — VWAP trailing stop + re-entry, TP at 17:00
+==============================================================================================================
+  ALL trades (long + short, all gamma)                     n= 3386  (  735/yr)  P(profit)=43.4%  mean= +2.22 pts  total=   +7512  eod%=17%  t=+1.64  p=0.1021     
+  LONG only                                                n= 1587  (  345/yr)  P(profit)=45.2%  mean= +3.56 pts  total=   +5655  eod%=20%  t=+1.79  p=0.0736     
+  SHORT only                                               n= 1799  (  391/yr)  P(profit)=41.9%  mean= +1.03 pts  total=   +1856  eod%=14%  t=+0.56  p=0.5779     
+
+Exit-reason breakdown:
+    exit = eod_close                                       n=  575  (  125/yr)  P(profit)=84.3%  mean=+87.50 pts  total=  +50315  eod%=100%  t=+16.14  p=0.0000  ***
+    exit = vwap_stop                                       n= 2811  (  610/yr)  P(profit)=35.0%  mean=-15.23 pts  total=  -42804  eod%=0%  t=-16.96  p=0.0000  ***
+
+==============================================================================================================
+BY GAMMA REGIME
+==============================================================================================================
+
+--- QQQ-derived regime ---
+  LONG:
+      long  + QQQ_pos-gamma                                n=  351  (   76/yr)  P(profit)=43.6%  mean= +4.59 pts  total=   +1611  eod%=19%  t=+1.50  p=0.1345     
+      long  + QQQ_neg-gamma                                n= 1207  (  262/yr)  P(profit)=45.8%  mean= +3.33 pts  total=   +4020  eod%=21%  t=+1.36  p=0.1749     
+  SHORT:
+      short + QQQ_pos-gamma                                n=  111  (   24/yr)  P(profit)=38.7%  mean= -6.23 pts  total=    -692  eod%=30%  t=-1.19  p=0.2385     
+      short + QQQ_neg-gamma                                n= 1671  (  363/yr)  P(profit)=42.1%  mean= +1.47 pts  total=   +2462  eod%=13%  t=+0.75  p=0.4532     
+
+--- NDX-derived regime ---
+  LONG:
+      long  + NDX_pos-gamma                                n=  723  (  157/yr)  P(profit)=44.5%  mean= +2.08 pts  total=   +1505  eod%=16%  t=+1.03  p=0.3037     
+      long  + NDX_neg-gamma                                n=  836  (  182/yr)  P(profit)=46.1%  mean= +5.01 pts  total=   +4185  eod%=24%  t=+1.50  p=0.1341     
+  SHORT:
+      short + NDX_pos-gamma                                n=  154  (   33/yr)  P(profit)=41.6%  mean= +4.77 pts  total=    +735  eod%=41%  t=+0.54  p=0.5927     
+      short + NDX_neg-gamma                                n= 1636  (  355/yr)  P(profit)=41.9%  mean= +0.66 pts  total=   +1084  eod%=11%  t=+0.36  p=0.7214     

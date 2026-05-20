@@ -1,0 +1,30 @@
+================================================================================
+TEST 1 — PARAMETER STABILITY
+================================================================================
+
+### Rough Vol
+================================================================================
+Locked: PnL=$+153,549  PF=1.312  MDD=$-16,957  trades=814
+  norm                all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.82x..1.00x  [PASS]
+  hz                  all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.91x..1.00x  [PASS]
+  sl_atr              all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.72x..1.00x  [PASS]
+  tp_atr              all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.73x..1.00x  [PASS]
+  OVERALL: PASS
+
+### Overnight Drift
+================================================================================
+Locked: PnL=$+208,450  PF=1.286  MDD=$-28,155  trades=1357
+  yellow_atr_mult     all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.86x..1.01x  [PASS]
+  green_base          all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.94x..1.00x  [PASS]
+  green_decay         all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.95x..1.00x  [PASS]
+  green_atr_mult      all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.88x..1.00x  [PASS]
+  OVERALL: PASS
+
+### OHI/OLO B2
+================================================================================
+Locked: PnL=$+6,494  PF=1.351  MDD=$-714  trades=650
+  YMULT               all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.82x..1.00x  [PASS]
+  TPMULT              all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.73x..1.01x  [PASS]
+  MFE_K               all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.91x..1.00x  [PASS]
+  MFE_LOCK            all_profitable=True  all_PF>1=True  min/max PnL rel locked: 0.97x..1.00x  [PASS]
+  OVERALL: PASS

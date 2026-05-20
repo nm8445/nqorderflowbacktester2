@@ -1,0 +1,459 @@
+// NinjaTrader Add-On: NQ Multi-Strategy Signal Receiver
+//
+// Handles 4 concurrent strategy positions (RV, B2, OD, Fabio) on one account.
+// Each entry/exit carries a unique tag so flatten commands route to ONLY the
+// matching position — manual trades and other addons are not touched.
+//
+// Heartbeat watchdog: if Python sends no heartbeat for 30 sec, all positions
+// tagged by that Python instance are flattened (failsafe).
+//
+// HTTP endpoints:
+//   POST /order      — ENTRY (with optional bracket) or CLOSE_TAG
+//   POST /heartbeat  — Python liveness ping (every 10 sec)
+//   GET  /status     — diagnostic (open positions, last heartbeat)
+//
+// Installation:
+//   1. Copy to: Documents\NinjaTrader 8\bin\Custom\AddOns\
+//   2. Compile in NT (Tools > Edit NinjaScript > Compile)
+//   3. Control Center -> New -> Add-On -> NQ Multi-Strat Receiver
+//   4. Start the receiver from the UI (button)
+
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
+using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Tools;
+using NinjaTrader.NinjaScript;
+
+namespace NinjaTrader.NinjaScript.AddOns
+{
+    public class NQMultiStratReceiver : AddOnBase
+    {
+        // ============== HTTP server ==============
+        private HttpListener httpListener;
+        private Thread listenerThread;
+        private bool isRunning = false;
+        private int serverPort = 8081;
+
+        // ============== UI ==============
+        private Dispatcher uiDispatcher;
+        private NTWindow window;
+        private TextBlock statusText;
+        private TextBlock heartbeatText;
+        private TextBlock positionsText;
+        private Button startButton;
+        private Button stopButton;
+        private ListBox logListBox;
+
+        // ============== Trading config ==============
+        private string accountName    = "Sim101";
+        private string instrumentName = "MNQ 06-26";
+        private Account trackedAccount = null;
+        private NinjaTrader.Cbi.Instrument resolvedInstrument = null;
+
+        // ============== Position tracking by tag ==============
+        // Each tag = "STRAT_YYYYMMDD_HHMMSS_DIRECTION" (e.g., "RV_20260519_094000_SHORT")
+        private class TaggedPosition
+        {
+            public string Tag;
+            public string Strat;
+            public string Direction;
+            public int Quantity;
+            public Order EntryOrder;
+            public Order StopOrder;
+            public Order TargetOrder;
+            public DateTime EntryTime;
+            public string InstanceId;
+        }
+        private ConcurrentDictionary<string, TaggedPosition> openTaggedPositions = new ConcurrentDictionary<string, TaggedPosition>();
+
+        // ============== Heartbeat watchdog ==============
+        private ConcurrentDictionary<string, DateTime> lastHeartbeat = new ConcurrentDictionary<string, DateTime>();
+        private Timer watchdogTimer;
+        private readonly int HEARTBEAT_TIMEOUT_SEC = 30;
+
+        protected override void OnStateChange()
+        {
+            if (State == State.SetDefaults)
+            {
+                Description = "Multi-strategy NQ executor with tagged orders + heartbeat watchdog";
+                Name        = "NQ Multi-Strat Receiver";
+            }
+            else if (State == State.Configure)
+            {
+                Core.Globals.RandomDispatcher.BeginInvoke(new Action(() =>
+                {
+                    uiDispatcher = Dispatcher.CurrentDispatcher;
+                    ShowControlPanel();
+                }));
+            }
+            else if (State == State.Terminated)
+            {
+                StopServer();
+                if (watchdogTimer != null) { watchdogTimer.Dispose(); watchdogTimer = null; }
+            }
+        }
+
+        // ============== UI ==============
+        private void ShowControlPanel()
+        {
+            window = new NTWindow
+            {
+                Caption = "NQ Multi-Strat Receiver",
+                Width = 600, Height = 480,
+                ResizeMode = ResizeMode.CanResize,
+            };
+
+            var grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(5) };
+            startButton = new Button { Content = "Start", Width = 80, Margin = new Thickness(2) };
+            startButton.Click += (s, e) => StartServer();
+            stopButton = new Button { Content = "Stop", Width = 80, Margin = new Thickness(2), IsEnabled = false };
+            stopButton.Click += (s, e) => StopServer();
+            btnPanel.Children.Add(startButton);
+            btnPanel.Children.Add(stopButton);
+            Grid.SetRow(btnPanel, 0);
+            grid.Children.Add(btnPanel);
+
+            statusText = new TextBlock { Text = "Status: Stopped", Margin = new Thickness(10, 0, 0, 0), Foreground = Brushes.Gray };
+            Grid.SetRow(statusText, 1);
+            grid.Children.Add(statusText);
+
+            heartbeatText = new TextBlock { Text = "Heartbeat: (no instance connected)", Margin = new Thickness(10, 0, 0, 0), Foreground = Brushes.Gray };
+            Grid.SetRow(heartbeatText, 2);
+            grid.Children.Add(heartbeatText);
+
+            positionsText = new TextBlock { Text = "Open tagged positions: 0", Margin = new Thickness(10, 0, 0, 0), Foreground = Brushes.Gray };
+            Grid.SetRow(positionsText, 3);
+            grid.Children.Add(positionsText);
+
+            logListBox = new ListBox { Margin = new Thickness(5) };
+            Grid.SetRow(logListBox, 4);
+            grid.Children.Add(logListBox);
+
+            window.Content = grid;
+            window.Show();
+        }
+
+        private void Log(string msg)
+        {
+            string line = $"{DateTime.Now:HH:mm:ss}  {msg}";
+            uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                logListBox.Items.Insert(0, line);
+                if (logListBox.Items.Count > 200) logListBox.Items.RemoveAt(logListBox.Items.Count - 1);
+            }));
+        }
+
+        // ============== HTTP server ==============
+        private void StartServer()
+        {
+            if (isRunning) return;
+            try
+            {
+                httpListener = new HttpListener();
+                httpListener.Prefixes.Add($"http://localhost:{serverPort}/");
+                httpListener.Start();
+                isRunning = true;
+
+                // Resolve instrument + account
+                trackedAccount = Account.All.FirstOrDefault(a => a.Name == accountName);
+                resolvedInstrument = Instrument.GetInstrument(instrumentName);
+
+                listenerThread = new Thread(ListenLoop) { IsBackground = true, Name = "NQMS-Listener" };
+                listenerThread.Start();
+
+                watchdogTimer = new Timer(_ => CheckHeartbeats(), null, 10000, 10000);
+
+                uiDispatcher?.BeginInvoke(new Action(() =>
+                {
+                    statusText.Text = $"Status: LISTENING on http://localhost:{serverPort}";
+                    statusText.Foreground = Brushes.LimeGreen;
+                    startButton.IsEnabled = false;
+                    stopButton.IsEnabled = true;
+                }));
+                Log($"Server started on port {serverPort}");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR starting server: {ex.Message}");
+            }
+        }
+
+        private void StopServer()
+        {
+            isRunning = false;
+            try { httpListener?.Stop(); } catch { }
+            watchdogTimer?.Dispose();
+            watchdogTimer = null;
+            uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                statusText.Text = "Status: Stopped";
+                statusText.Foreground = Brushes.Gray;
+                startButton.IsEnabled = true;
+                stopButton.IsEnabled = false;
+            }));
+            Log("Server stopped");
+        }
+
+        private void ListenLoop()
+        {
+            while (isRunning)
+            {
+                try
+                {
+                    var ctx = httpListener.GetContext();
+                    Task.Run(() => HandleRequest(ctx));
+                }
+                catch { /* listener closed */ }
+            }
+        }
+
+        private void HandleRequest(HttpListenerContext ctx)
+        {
+            try
+            {
+                string body = "";
+                using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
+                    body = reader.ReadToEnd();
+
+                string path = ctx.Request.Url.AbsolutePath.ToLower();
+                string method = ctx.Request.HttpMethod;
+
+                if (method == "POST" && path == "/order")
+                {
+                    HandleOrder(body);
+                }
+                else if (method == "POST" && path == "/heartbeat")
+                {
+                    HandleHeartbeat(body);
+                }
+                else if (method == "GET" && path == "/status")
+                {
+                    SendStatusJson(ctx);
+                    return;
+                }
+
+                ctx.Response.StatusCode = 200;
+                ctx.Response.Close();
+            }
+            catch (Exception ex)
+            {
+                Log($"Request ERROR: {ex.Message}");
+                try { ctx.Response.StatusCode = 500; ctx.Response.Close(); } catch { }
+            }
+        }
+
+        // Minimal flat-JSON parser (matches existing NQOrderFlowSignalReceiver style).
+        // Works for flat objects with string/number/bool values. No nested objects/arrays.
+        private Dictionary<string, string> ParseJson(string json)
+        {
+            var d = new Dictionary<string, string>();
+            if (string.IsNullOrWhiteSpace(json)) return d;
+            json = json.Trim().Trim('{', '}');
+            foreach (string pair in json.Split(','))
+            {
+                string[] kv = pair.Split(new[] { ':' }, 2);
+                if (kv.Length == 2)
+                    d[kv[0].Trim().Trim('"', ' ')] = kv[1].Trim().Trim('"', ' ');
+            }
+            return d;
+        }
+
+        // ============== ORDER handler ==============
+        private void HandleOrder(string body)
+        {
+            var p = ParseJson(body);
+            string action = p.ContainsKey("action") ? p["action"].ToUpper() : "";
+            string tag = p.ContainsKey("tag") ? p["tag"] : null;
+            string instanceId = p.ContainsKey("instance_id") ? p["instance_id"] : "unknown";
+
+            if (action == "ENTRY")
+            {
+                string strat = p["strat"];
+                string direction = p["direction"];
+                int qty = int.Parse(p["quantity"]);
+                // Old API used a "bracket" bool; new API just inspects presence
+                // of stop_price / target_price independently.
+                bool hasStop  = p.ContainsKey("stop_price");
+                bool hasTgt   = p.ContainsKey("target_price");
+
+                Log($"ENTRY {tag} {direction} x{qty} stop={hasStop} tp={hasTgt}");
+
+                OrderAction oaEntry = direction == "LONG" ? OrderAction.Buy : OrderAction.SellShort;
+                OrderAction oaStop  = direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
+                OrderAction oaTgt   = oaStop;
+
+                var pos = new TaggedPosition
+                {
+                    Tag = tag, Strat = strat, Direction = direction,
+                    Quantity = qty, EntryTime = DateTime.Now, InstanceId = instanceId,
+                };
+
+                pos.EntryOrder = trackedAccount.CreateOrder(
+                    resolvedInstrument, oaEntry, OrderType.Market,
+                    OrderEntry.Manual, TimeInForce.Day, qty, 0, 0,
+                    "", tag + "_E", DateTime.MaxValue, null);
+                trackedAccount.Submit(new[] { pos.EntryOrder });
+
+                // Place stop and/or target independently. If both → OCO bracket.
+                // If only target → standalone limit (B2 green case).
+                // If only stop → standalone stop (rare).
+                if (hasStop || hasTgt)
+                {
+                    string ocoId = (hasStop && hasTgt) ? (tag + "_OCO") : "";
+                    if (hasTgt)
+                    {
+                        double tgtPx = double.Parse(p["target_price"]);
+                        pos.TargetOrder = trackedAccount.CreateOrder(
+                            resolvedInstrument, oaTgt, OrderType.Limit,
+                            OrderEntry.Manual, TimeInForce.Day, qty, tgtPx, 0,
+                            ocoId, tag + "_T", DateTime.MaxValue, null);
+                        trackedAccount.Submit(new[] { pos.TargetOrder });
+                        Log($"  target sent: limit={tgtPx:F2}");
+                    }
+                    if (hasStop)
+                    {
+                        double stopPx = double.Parse(p["stop_price"]);
+                        pos.StopOrder = trackedAccount.CreateOrder(
+                            resolvedInstrument, oaStop, OrderType.StopMarket,
+                            OrderEntry.Manual, TimeInForce.Day, qty, 0, stopPx,
+                            ocoId, tag + "_S", DateTime.MaxValue, null);
+                        trackedAccount.Submit(new[] { pos.StopOrder });
+                        Log($"  stop sent: {stopPx:F2}");
+                    }
+                }
+
+                openTaggedPositions[tag] = pos;
+                UpdatePositionsLabel();
+            }
+            else if (action == "CLOSE_TAG")
+            {
+                if (tag != null && openTaggedPositions.TryGetValue(tag, out var pos))
+                {
+                    string reason = p.ContainsKey("reason") ? p["reason"] : "";
+                    CloseTaggedPosition(pos, reason);
+                }
+                else
+                {
+                    Log($"CLOSE_TAG {tag}: position not found (already closed?)");
+                }
+            }
+        }
+
+        private void CloseTaggedPosition(TaggedPosition pos, string reason)
+        {
+            Log($"CLOSE {pos.Tag} reason={reason}");
+            try
+            {
+                // Cancel any pending OCO orders
+                if (pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working)
+                    trackedAccount.Cancel(new[] { pos.StopOrder });
+                if (pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working)
+                    trackedAccount.Cancel(new[] { pos.TargetOrder });
+
+                // Send market exit
+                OrderAction oa = pos.Direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
+                var closeOrder = trackedAccount.CreateOrder(
+                    resolvedInstrument, oa, OrderType.Market,
+                    OrderEntry.Manual, TimeInForce.Day, pos.Quantity, 0, 0,
+                    "", pos.Tag + "_X", DateTime.MaxValue, null);
+                trackedAccount.Submit(new[] { closeOrder });
+            }
+            catch (Exception ex)
+            {
+                Log($"  CLOSE ERROR {pos.Tag}: {ex.Message}");
+            }
+            openTaggedPositions.TryRemove(pos.Tag, out _);
+            UpdatePositionsLabel();
+        }
+
+        // ============== HEARTBEAT handler ==============
+        private void HandleHeartbeat(string body)
+        {
+            var p = ParseJson(body);
+            string instanceId = p.ContainsKey("instance_id") ? p["instance_id"] : "unknown";
+            lastHeartbeat[instanceId] = DateTime.Now;
+            uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                heartbeatText.Text = $"Heartbeat: {instanceId} @ {DateTime.Now:HH:mm:ss}";
+                heartbeatText.Foreground = Brushes.LimeGreen;
+            }));
+        }
+
+        // Called every 10 sec by watchdogTimer
+        private void CheckHeartbeats()
+        {
+            var now = DateTime.Now;
+            var stale = lastHeartbeat
+                .Where(kv => (now - kv.Value).TotalSeconds > HEARTBEAT_TIMEOUT_SEC)
+                .Select(kv => kv.Key).ToList();
+
+            foreach (var instId in stale)
+            {
+                Log($"WATCHDOG: heartbeat stale for instance {instId} — flattening tagged positions");
+                var toClose = openTaggedPositions.Values
+                    .Where(pos => pos.InstanceId == instId).ToList();
+                foreach (var pos in toClose)
+                    CloseTaggedPosition(pos, "heartbeat_timeout");
+                lastHeartbeat.TryRemove(instId, out _);
+                uiDispatcher?.BeginInvoke(new Action(() =>
+                {
+                    heartbeatText.Text = $"Heartbeat: STALE — flattened {toClose.Count} positions";
+                    heartbeatText.Foreground = Brushes.OrangeRed;
+                }));
+            }
+        }
+
+        // ============== STATUS endpoint ==============
+        private void SendStatusJson(HttpListenerContext ctx)
+        {
+            // Manual JSON construction (matches existing addon style — no Newtonsoft dependency)
+            var sb = new StringBuilder();
+            sb.Append("{");
+            sb.Append($"\"running\":{isRunning.ToString().ToLower()},");
+            sb.Append($"\"port\":{serverPort},");
+            sb.Append($"\"account\":\"{accountName}\",");
+            sb.Append($"\"instrument\":\"{instrumentName}\",");
+            sb.Append($"\"open_positions\":{openTaggedPositions.Count},");
+            sb.Append("\"tags\":[");
+            sb.Append(string.Join(",", openTaggedPositions.Keys.Select(k => $"\"{k}\"")));
+            sb.Append("],\"last_heartbeats\":{");
+            sb.Append(string.Join(",", lastHeartbeat.Select(kv =>
+                $"\"{kv.Key}\":\"{kv.Value.ToString("yyyy-MM-dd HH:mm:ss")}\"")));
+            sb.Append("}}");
+            string json = sb.ToString();
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            ctx.Response.ContentType = "application/json";
+            ctx.Response.ContentLength64 = bytes.Length;
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            ctx.Response.Close();
+        }
+
+        private void UpdatePositionsLabel()
+        {
+            int n = openTaggedPositions.Count;
+            uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                positionsText.Text = $"Open tagged positions: {n}  ({string.Join(", ", openTaggedPositions.Keys.Take(5))})";
+            }));
+        }
+    }
+}

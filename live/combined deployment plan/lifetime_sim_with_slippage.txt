@@ -1,0 +1,6 @@
+Hola Prime lifetime sim with realistic slippage
+======================================================================
+
+Slippage model: RV $28/tr, B2 $28/tr, OD $70/tr x qty (NQ basis)
+Total slippage drag across history: $158,638 (29.7% of PnL)
+

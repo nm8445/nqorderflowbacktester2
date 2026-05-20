@@ -108,6 +108,10 @@ class B2Engine:
 
         # Current bar's ATR (passed in via on_20min_bar)
         self._current_atr_y: float | None = None
+        # Last known 20-min ATR — exposed for B2SignalEngine to read at conf
+        # bar firing time (so yellow/green use the correct 20-min ATR, not
+        # the 5-min ATR the signal engine computes locally).
+        self._last_atr_20m: float | None = None
         # Last bar seen (for EOD exit pricing when day changes without force-close)
         self._last_bar: Optional[Bar] = None
 
@@ -149,6 +153,66 @@ class B2Engine:
     def set_gamma_sign(self, date, sign: int) -> None:
         self._gamma_sign[date] = sign
 
+    def fire_entry_from_signal(self, direction: str, entry_price: float,
+                                atr_y: float, ts: pd.Timestamp) -> bool:
+        """Fire entry IMMEDIATELY (called by B2SignalEngine on conf bar close).
+
+        Bypasses the pending-queue 20-min delay. Used when the live signal
+        engine wants entry to fire at the 5-min boundary (within ~1 sec of
+        signal confirmation) instead of waiting up to 20 min for the next
+        20-min bar.
+
+        Applies the SAME filters as _try_fire_pending: ALLOWED_HOURS check,
+        DROP_POS_SHORT, ATR sanity.
+
+        atr_y: should be 20-min ATR for parity with backtest's
+        `init_atr_y = bars20["atr_y"].iloc[init_idx]`.
+
+        Returns True if entry fired, False if blocked.
+        """
+        if self.position is not None:
+            return False
+        if ts.tzinfo is None:
+            ts = ts.tz_localize(ET_TZ)
+
+        # Filter: hours 9-14 ET only
+        if ts.hour not in ALLOWED_HOURS:
+            self.n_blocked_hour += 1
+            print(f"  [B2-BLOCKED] {ts.strftime('%Y-%m-%d %H:%M ET')} {direction} @ "
+                  f"{entry_price:.2f} blocked by hour filter (hour {ts.hour})")
+            return False
+
+        # Filter: POS-gamma SHORT block
+        if DROP_POS_SHORT and direction == "SHORT":
+            gs = self._gamma_sign.get(ts.date())
+            if gs == 1:
+                self.n_blocked_pos_short += 1
+                print(f"  [B2-BLOCKED] {ts.strftime('%Y-%m-%d %H:%M ET')} SHORT @ "
+                      f"{entry_price:.2f} blocked by POS gamma")
+                return False
+
+        if atr_y is None or atr_y <= 0 or atr_y != atr_y:   # nan check
+            return False
+
+        sign = 1 if direction == "LONG" else -1
+        qty = self._next_size if ENABLE_FC_MART else 1
+        yellow = entry_price - sign * YMULT * atr_y
+        green = entry_price + sign * TPMULT * atr_y
+
+        self.position = B2Position(
+            direction=Direction.LONG if direction == "LONG" else Direction.SHORT,
+            entry_price=entry_price,
+            entry_time=ts,
+            init_atr_y=atr_y,
+            yellow_val=yellow,
+            green_val=green,
+            mfe_so_far=0.0,
+            qty=qty,
+        )
+        self.emit(B2Signal(event="ENTRY", direction=self.position.direction,
+                           price=entry_price, timestamp=ts, reason="", qty=qty))
+        return True
+
     def on_20min_bar(self, bar: Bar, current_atr_y: float | None = None) -> None:
         """Process a 20-min bar close. Exit checks first, then candidate entries.
 
@@ -156,6 +220,9 @@ class B2Engine:
         If None, falls back to position.init_atr_y (degraded parity)."""
         self.n_bars_seen += 1
         self._current_atr_y = current_atr_y
+        # Stash latest 20-min ATR for B2SignalEngine.fire_entry_from_signal()
+        if current_atr_y is not None and current_atr_y == current_atr_y:   # not NaN
+            self._last_atr_20m = current_atr_y
 
         # === EXITS ===
         if self.position is not None:

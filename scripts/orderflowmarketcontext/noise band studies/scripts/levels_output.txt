@@ -1,0 +1,99 @@
+loading band parquet + 5-min RTH bars...
+  band rows: 1114
+  RTH days with 5-min bars: 1516
+
+processing 785 above/below break days (14d lookback)...
+
+  100/785  elapsed=2s  rows=95
+  200/785  elapsed=4s  rows=202
+  300/785  elapsed=6s  rows=285
+  400/785  elapsed=9s  rows=399
+  500/785  elapsed=11s  rows=515
+  600/785  elapsed=13s  rows=606
+  700/785  elapsed=15s  rows=688
+
+wrote C:\trading\nqorderflowbacktester\scripts\orderflowmarketcontext\noise band studies\scripts\bands_with_levels.parquet  (779 level-touch rows)
+
+====================================================================================================
+LEVEL-INTERACTION RESULTS
+====================================================================================================
+Sig markers: * p<0.05, ** p<0.01, *** p<0.001
+P(cont) = price closed at 17:00 past the level (further in trade direction)
+P(profit) = pnl from level-touch to 17:00 was positive (in trade direction)
+
+
+--- LONG entries (above_only / below_only) ---
+    ALL levels long                                             n= 423  P(cont)=68.8%  P(profit)=63.6%  mean=+26.28 pts  t=+3.50  p=0.0005  ***
+    cr      ALL gamma                                           n= 128  P(cont)=69.5%  P(profit)=62.5%  mean=+19.66 pts  t=+1.44  p=0.1537     
+      cr      + QQQ_pos-gamma                                   n=  21  P(cont)=57.1%  P(profit)=57.1%  mean= -0.60 pts  t=-0.03  p=0.9756     
+      cr      + QQQ_neg-gamma                                   n= 106  P(cont)=71.7%  P(profit)=63.2%  mean=+23.06 pts  t=+1.43  p=0.1548     
+      cr      + NDX_pos-gamma                                   n=  45  P(cont)=66.7%  P(profit)=57.8%  mean=+12.85 pts  t=+0.89  p=0.3763     
+      cr      + NDX_neg-gamma                                   n=  82  P(cont)=70.7%  P(profit)=64.6%  mean=+22.61 pts  t=+1.14  p=0.2597     
+    ps      ALL gamma                                           n=   0  insufficient
+      ps      + QQQ_pos-gamma                                   n=   0  insufficient
+      ps      + QQQ_neg-gamma                                   n=   0  insufficient
+      ps      + NDX_pos-gamma                                   n=   0  insufficient
+      ps      + NDX_neg-gamma                                   n=   0  insufficient
+    gex_1   ALL gamma                                           n=  52  P(cont)=73.1%  P(profit)=71.2%  mean=+63.02 pts  t=+1.81  p=0.0755     
+      gex_1   + QQQ_pos-gamma                                   n=   9  P(cont)=66.7%  P(profit)=66.7%  mean=+35.19 pts  t=+1.06  p=0.3202     
+      gex_1   + QQQ_neg-gamma                                   n=  43  P(cont)=74.4%  P(profit)=72.1%  mean=+68.84 pts  t=+1.66  p=0.1046     
+      gex_1   + NDX_pos-gamma                                   n=  18  P(cont)=72.2%  P(profit)=66.7%  mean=+20.18 pts  t=+0.94  p=0.3581     
+      gex_1   + NDX_neg-gamma                                   n=  34  P(cont)=73.5%  P(profit)=73.5%  mean=+85.70 pts  t=+1.66  p=0.1074     
+    gex_2   ALL gamma                                           n=  72  P(cont)=58.3%  P(profit)=52.8%  mean= +8.90 pts  t=+0.65  p=0.5191     
+      gex_2   + QQQ_pos-gamma                                   n=   7  P(cont)=57.1%  P(profit)=42.9%  mean= -2.29 pts  t=-0.07  p=0.9441     
+      gex_2   + QQQ_neg-gamma                                   n=  65  P(cont)=58.5%  P(profit)=53.8%  mean=+10.10 pts  t=+0.68  p=0.4998     
+      gex_2   + NDX_pos-gamma                                   n=  26  P(cont)=46.2%  P(profit)=34.6%  mean=-25.36 pts  t=-1.28  p=0.2126     
+      gex_2   + NDX_neg-gamma                                   n=  46  P(cont)=65.2%  P(profit)=63.0%  mean=+28.26 pts  t=+1.58  p=0.1206     
+    gex_3   ALL gamma                                           n=  65  P(cont)=70.8%  P(profit)=61.5%  mean=+28.25 pts  t=+1.92  p=0.0593     
+      gex_3   + QQQ_pos-gamma                                   n=  17  P(cont)=64.7%  P(profit)=58.8%  mean=+48.24 pts  t=+1.79  p=0.0919     
+      gex_3   + QQQ_neg-gamma                                   n=  47  P(cont)=72.3%  P(profit)=61.7%  mean=+19.82 pts  t=+1.11  p=0.2732     
+      gex_3   + NDX_pos-gamma                                   n=  28  P(cont)=60.7%  P(profit)=53.6%  mean=+23.71 pts  t=+1.12  p=0.2733     
+      gex_3   + NDX_neg-gamma                                   n=  36  P(cont)=77.8%  P(profit)=66.7%  mean=+30.22 pts  t=+1.44  p=0.1596     
+    gex_4   ALL gamma                                           n=  49  P(cont)=75.5%  P(profit)=73.5%  mean=+48.51 pts  t=+2.58  p=0.0131    *
+      gex_4   + QQQ_pos-gamma                                   n=  10  P(cont)=70.0%  P(profit)=60.0%  mean=+12.82 pts  t=+0.40  p=0.6956     
+      gex_4   + QQQ_neg-gamma                                   n=  39  P(cont)=76.9%  P(profit)=76.9%  mean=+57.66 pts  t=+2.60  p=0.0131    *
+      gex_4   + NDX_pos-gamma                                   n=  22  P(cont)=68.2%  P(profit)=63.6%  mean=+17.52 pts  t=+0.66  p=0.5170     
+      gex_4   + NDX_neg-gamma                                   n=  27  P(cont)=81.5%  P(profit)=81.5%  mean=+73.76 pts  t=+2.85  p=0.0084   **
+    gex_5   ALL gamma                                           n=  57  P(cont)=68.4%  P(profit)=66.7%  mean= +8.24 pts  t=+0.48  p=0.6355     
+      gex_5   + QQQ_pos-gamma                                   n=  13  P(cont)=53.8%  P(profit)=53.8%  mean=-21.04 pts  t=-0.63  p=0.5381     
+      gex_5   + QQQ_neg-gamma                                   n=  44  P(cont)=72.7%  P(profit)=70.5%  mean=+16.89 pts  t=+0.84  p=0.4064     
+      gex_5   + NDX_pos-gamma                                   n=  19  P(cont)=52.6%  P(profit)=52.6%  mean=-23.18 pts  t=-0.75  p=0.4637     
+      gex_5   + NDX_neg-gamma                                   n=  38  P(cont)=76.3%  P(profit)=73.7%  mean=+23.95 pts  t=+1.16  p=0.2530     
+
+--- SHORT entries (above_only / below_only) ---
+    ALL levels short                                            n= 356  P(cont)=61.2%  P(profit)=52.8%  mean=+29.25 pts  t=+3.41  p=0.0007  ***
+    cr      ALL gamma                                           n=   0  insufficient
+      cr      + QQQ_pos-gamma                                   n=   0  insufficient
+      cr      + QQQ_neg-gamma                                   n=   0  insufficient
+      cr      + NDX_pos-gamma                                   n=   0  insufficient
+      cr      + NDX_neg-gamma                                   n=   0  insufficient
+    ps      ALL gamma                                           n= 106  P(cont)=61.3%  P(profit)=53.8%  mean=+37.29 pts  t=+2.60  p=0.0105    *
+      ps      + QQQ_pos-gamma                                   n=  11  P(cont)=54.5%  P(profit)=45.5%  mean= -6.84 pts  t=-0.23  p=0.8232     
+      ps      + QQQ_neg-gamma                                   n=  95  P(cont)=62.1%  P(profit)=54.7%  mean=+42.39 pts  t=+2.73  p=0.0076   **
+      ps      + NDX_pos-gamma                                   n=  24  P(cont)=58.3%  P(profit)=50.0%  mean=+18.30 pts  t=+1.01  p=0.3224     
+      ps      + NDX_neg-gamma                                   n=  82  P(cont)=62.2%  P(profit)=54.9%  mean=+42.84 pts  t=+2.42  p=0.0180    *
+    gex_1   ALL gamma                                           n=  44  P(cont)=59.1%  P(profit)=54.5%  mean=+38.66 pts  t=+1.12  p=0.2710     
+      gex_1   + QQQ_pos-gamma                                   n=   3  P(cont)=33.3%  P(profit)=33.3%  mean=+33.75 pts  t=+0.23  p=0.8405     
+      gex_1   + QQQ_neg-gamma                                   n=  41  P(cont)=61.0%  P(profit)=56.1%  mean=+39.02 pts  t=+1.08  p=0.2869     
+      gex_1   + NDX_pos-gamma                                   n=   5  P(cont)=80.0%  P(profit)=80.0%  mean=+249.05 pts  t=+1.40  p=0.2329     
+      gex_1   + NDX_neg-gamma                                   n=  39  P(cont)=56.4%  P(profit)=51.3%  mean=+11.69 pts  t=+0.38  p=0.7054     
+    gex_2   ALL gamma                                           n=  57  P(cont)=66.7%  P(profit)=57.9%  mean=+31.39 pts  t=+1.53  p=0.1320     
+      gex_2   + QQQ_pos-gamma                                   n=   5  P(cont)=60.0%  P(profit)=40.0%  mean=+23.00 pts  t=+0.32  p=0.7672     
+      gex_2   + QQQ_neg-gamma                                   n=  52  P(cont)=67.3%  P(profit)=59.6%  mean=+32.20 pts  t=+1.49  p=0.1426     
+      gex_2   + NDX_pos-gamma                                   n=  12  P(cont)=66.7%  P(profit)=50.0%  mean=+21.00 pts  t=+0.73  p=0.4793     
+      gex_2   + NDX_neg-gamma                                   n=  45  P(cont)=66.7%  P(profit)=60.0%  mean=+34.17 pts  t=+1.37  p=0.1784     
+    gex_3   ALL gamma                                           n=  48  P(cont)=58.3%  P(profit)=50.0%  mean=+40.65 pts  t=+1.82  p=0.0748     
+      gex_3   + QQQ_pos-gamma                                   n=   7  P(cont)=42.9%  P(profit)=42.9%  mean= +4.86 pts  t=+0.07  p=0.9461     
+      gex_3   + QQQ_neg-gamma                                   n=  41  P(cont)=61.0%  P(profit)=51.2%  mean=+46.76 pts  t=+1.98  p=0.0544     
+      gex_3   + NDX_pos-gamma                                   n=   9  P(cont)=33.3%  P(profit)=33.3%  mean= +7.06 pts  t=+0.14  p=0.8922     
+      gex_3   + NDX_neg-gamma                                   n=  39  P(cont)=64.1%  P(profit)=53.8%  mean=+48.40 pts  t=+1.94  p=0.0604     
+    gex_4   ALL gamma                                           n=  51  P(cont)=54.9%  P(profit)=49.0%  mean=+12.53 pts  t=+0.62  p=0.5358     
+      gex_4   + QQQ_pos-gamma                                   n=   4  P(cont)=25.0%  P(profit)=25.0%  mean=-68.25 pts  t=-1.50  p=0.2301     
+      gex_4   + QQQ_neg-gamma                                   n=  47  P(cont)=57.4%  P(profit)=51.1%  mean=+19.40 pts  t=+0.91  p=0.3660     
+      gex_4   + NDX_pos-gamma                                   n=   7  P(cont)=42.9%  P(profit)=28.6%  mean= +4.57 pts  t=+0.10  p=0.9269     
+      gex_4   + NDX_neg-gamma                                   n=  44  P(cont)=56.8%  P(profit)=52.3%  mean=+13.80 pts  t=+0.62  p=0.5378     
+    gex_5   ALL gamma                                           n=  50  P(cont)=66.0%  P(profit)=50.0%  mean= +7.61 pts  t=+0.35  p=0.7293     
+      gex_5   + QQQ_pos-gamma                                   n=   1  insufficient
+      gex_5   + QQQ_neg-gamma                                   n=  49  P(cont)=67.3%  P(profit)=51.0%  mean= +8.77 pts  t=+0.39  p=0.6954     
+      gex_5   + NDX_pos-gamma                                   n=   4  P(cont)=75.0%  P(profit)=75.0%  mean= +4.62 pts  t=+0.14  p=0.8989     
+      gex_5   + NDX_neg-gamma                                   n=  46  P(cont)=65.2%  P(profit)=47.8%  mean= +7.86 pts  t=+0.33  p=0.7409     

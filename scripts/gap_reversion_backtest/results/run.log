@@ -1,0 +1,137 @@
+[1] Loading 1-min parquet...
+    rows=1,729,116  range=2020-12-01 00:01:00-05:00 -> 2025-12-01 00:00:00-05:00
+    RTH bars: 486,459
+    Calendar trading days in window: 1301
+C:\trading\nqorderflowbacktester\scripts\gap_reversion_backtest\gap_reversion_backtest.py:96: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  prior_early = sched["is_early_close"].shift(1).fillna(False)
+    Usable trading days: 1,266
+    Date span: 2020-12-01 -> 2025-11-28
+[2] Computing gaps...
+    Gap table: 1,201 days
+    Gap_pct stats: mean=0.0495%  std=0.9129%  p1=-2.5502%  p99=2.4005%
+    |gap|>0.3% days: 729
+
+    Random spot-check (10 days):
+      2021-02-08  prev_close=13600.75  open_930=13666.50  gap_pct=+0.4834%
+      2021-03-17  prev_close=13146.50  open_930=13006.75  gap_pct=-1.0630%
+      2021-11-09  prev_close=16332.25  open_930=16375.25  gap_pct=+0.2633%
+      2021-11-24  prev_close=16304.50  open_930=16198.75  gap_pct=-0.6486%
+      2022-02-16  prev_close=14594.50  open_930=14513.00  gap_pct=-0.5584%
+      2022-06-09  prev_close=12603.75  open_930=12571.50  gap_pct=-0.2559%
+      2023-06-21  prev_close=15261.00  open_930=15201.50  gap_pct=-0.3899%
+      2024-06-28  prev_close=20025.00  open_930=20070.50  gap_pct=+0.2272%
+      2024-08-14  prev_close=19101.25  open_930=19137.75  gap_pct=+0.1911%
+      2025-03-18  prev_close=20048.00  open_930=19897.00  gap_pct=-0.7532%
+
+[6] IS/OOS split at 2023-12-19  (IS=720  OOS=481 trading days)
+
+[4] Simulating variants...
+    A15: 729 trades  (2.2s)
+    A30: 729 trades  (2.9s)
+    A45: 729 trades  (3.5s)
+    A60: 729 trades  (4.3s)
+    A90: 729 trades  (5.9s)
+    B: 723 trades  (6.2s)
+    C: 723 trades  (4.0s)
+
+[8] Wrote C:\trading\nqorderflowbacktester\scripts\gap_reversion_backtest\results\trades_all.csv (5091 rows across 7 variants)
+
+[7] Computing IS/OOS metrics...
+variant  is_n     is_pnl  is_wr  is_sharpe      is_dd  is_exp  oos_n    oos_pnl  oos_wr  oos_sharpe     oos_dd  oos_exp
+    A15   457   7,128.50  52.52       0.24 -20,502.00   15.60    272  -2,124.00   47.79       -0.09 -19,170.00    -7.81
+    A30   457  -2,921.50  51.64      -0.08 -30,940.50   -6.39    272   6,431.00   48.90        0.21 -23,382.00    23.64
+    A45   457  -7,136.50  50.77      -0.15 -34,983.50  -15.62    272 -12,149.00   48.53       -0.29 -41,540.00   -44.67
+    A60   457  15,038.50  49.89       0.30 -27,710.50   32.91    272     556.00   49.63        0.01 -26,995.00     2.04
+    A90   457 -14,606.50  47.70      -0.25 -36,280.50  -31.96    272  34,256.00   54.41        0.73 -21,412.00   125.94
+      B   451 -29,571.29  45.90      -0.49 -42,634.04  -65.57    272  21,269.21   55.15        0.47 -33,533.36    78.20
+      C   451  14,990.86  49.89       0.30 -25,711.04   33.24    272  -9,467.04   50.00       -0.25 -34,666.93   -34.81
+
+--- Per-variant detail ---
+
+### A15
+  IS:  n=457  PnL=$+7,128  AnnRet=+9.4%  Sharpe=0.24  DD=$-20,502 (-82.0%)  WR=52.5%  AvgWin=$+792  AvgLoss=$-843  Payoff=0.94  Exp/Trade=$+15.6
+  OOS: n=272  PnL=$-2,124  AnnRet=-4.4%  Sharpe=-0.09  DD=$-19,170 (-76.7%)  WR=47.8%  AvgWin=$+1,098  AvgLoss=$-1,020  Payoff=1.08  Exp/Trade=$-7.8
+
+### A30
+  IS:  n=457  PnL=$-2,922  AnnRet=-3.9%  Sharpe=-0.08  DD=$-30,940 (-123.8%)  WR=51.6%  AvgWin=$+1,007  AvgLoss=$-1,088  Payoff=0.93  Exp/Trade=$-6.4
+  OOS: n=272  PnL=$+6,431  AnnRet=+13.3%  Sharpe=0.21  DD=$-23,382 (-93.5%)  WR=48.9%  AvgWin=$+1,388  AvgLoss=$-1,282  Payoff=1.08  Exp/Trade=$+23.6
+
+### A45
+  IS:  n=457  PnL=$-7,136  AnnRet=-9.4%  Sharpe=-0.15  DD=$-34,984 (-139.9%)  WR=50.8%  AvgWin=$+1,239  AvgLoss=$-1,309  Payoff=0.95  Exp/Trade=$-15.6
+  OOS: n=272  PnL=$-12,149  AnnRet=-25.1%  Sharpe=-0.29  DD=$-41,540 (-166.2%)  WR=48.5%  AvgWin=$+1,658  AvgLoss=$-1,650  Payoff=1.00  Exp/Trade=$-44.7
+
+### A60
+  IS:  n=457  PnL=$+15,038  AnnRet=+19.8%  Sharpe=0.30  DD=$-27,710 (-110.8%)  WR=49.9%  AvgWin=$+1,430  AvgLoss=$-1,358  Payoff=1.05  Exp/Trade=$+32.9
+  OOS: n=272  PnL=$+556  AnnRet=+1.2%  Sharpe=0.01  DD=$-26,995 (-108.0%)  WR=49.6%  AvgWin=$+1,827  AvgLoss=$-1,797  Payoff=1.02  Exp/Trade=$+2.0
+
+### A90
+  IS:  n=457  PnL=$-14,606  AnnRet=-19.3%  Sharpe=-0.25  DD=$-36,280 (-145.1%)  WR=47.7%  AvgWin=$+1,633  AvgLoss=$-1,550  Payoff=1.05  Exp/Trade=$-32.0
+  OOS: n=272  PnL=$+34,256  AnnRet=+70.9%  Sharpe=0.73  DD=$-21,412 (-85.6%)  WR=54.4%  AvgWin=$+2,047  AvgLoss=$-2,167  Payoff=0.94  Exp/Trade=$+125.9
+
+### B
+  IS:  n=451  PnL=$-29,571  AnnRet=-39.7%  Sharpe=-0.49  DD=$-42,634 (-170.5%)  WR=45.9%  AvgWin=$+1,833  AvgLoss=$-1,677  Payoff=1.09  Exp/Trade=$-65.6
+  OOS: n=272  PnL=$+21,269  AnnRet=+44.0%  Sharpe=0.47  DD=$-33,533 (-134.1%)  WR=55.1%  AvgWin=$+2,020  AvgLoss=$-2,310  Payoff=0.87  Exp/Trade=$+78.2
+
+### C
+  IS:  n=451  PnL=$+14,991  AnnRet=+20.1%  Sharpe=0.30  DD=$-25,711 (-102.8%)  WR=49.9%  AvgWin=$+1,465  AvgLoss=$-1,392  Payoff=1.05  Exp/Trade=$+33.2
+  OOS: n=272  PnL=$-9,467  AnnRet=-19.6%  Sharpe=-0.25  DD=$-34,667 (-138.7%)  WR=50.0%  AvgWin=$+1,751  AvgLoss=$-1,820  Payoff=0.96  Exp/Trade=$-34.8
+
+Best variant by IS Sharpe: C
+Best variant by IS total PnL: A60
+--> Using C for detailed breakdowns and plots
+
+### C — Direction breakdown (IS)
+direction   n           pnl  win_rate    avg_pnl
+    short 235  25634.642857 51.489362 109.083587
+     long 216 -10643.785714 48.148148 -49.276786
+
+### C — Direction breakdown (OOS)
+direction   n           pnl  win_rate    avg_pnl
+    short 167 -14092.035714 49.101796 -84.383447
+     long 105   4625.000000 51.428571  44.047619
+
+### C — Magnitude bucket (IS)
+magnitude   n          pnl  win_rate    avg_pnl
+ 0.3-0.5% 121  6641.928571 52.066116  54.891972
+ 0.5-0.8% 133 15647.750000 53.383459 117.652256
+ 0.8-1.2%  99 -5945.321429 44.444444 -60.053752
+    1.2%+  98 -1353.500000 47.959184 -13.811224
+
+### C — Magnitude bucket (OOS)
+magnitude  n           pnl  win_rate     avg_pnl
+ 0.3-0.5% 77 -10671.500000 48.051948 -138.590909
+ 0.5-0.8% 87  20317.071429 57.471264  233.529557
+ 0.8-1.2% 52 -13746.142857 46.153846 -264.348901
+    1.2%+ 56  -5366.464286 44.642857  -95.829719
+
+### C — Day of week (IS)  [flag SMALL_N if n<30]
+      dow  n           pnl  win_rate     avg_pnl    sharpe    t_stat  p_value flag
+   Monday 87 -26394.357143 39.080460 -303.383415 -3.250590 -1.909948 0.059473     
+  Tuesday 82 -20492.392857 42.682927 -249.907230 -2.149412 -1.226101 0.223713     
+Wednesday 91  29523.357143 59.340659  324.432496  2.959919  1.778690 0.078667     
+ Thursday 95  10216.250000 51.578947  107.539474  0.910268  0.558896 0.577562     
+   Friday 96  22138.000000 55.208333  230.604167  2.030068  1.252985 0.213286     
+
+### C — Day of week (OOS)
+      dow  n           pnl  win_rate     avg_pnl    sharpe    t_stat  p_value flag
+   Monday 57   6009.392857 54.385965  105.427945  0.687826  0.327127 0.744792     
+  Tuesday 52 -20019.714286 50.000000 -384.994505 -3.049011 -1.385034 0.172071     
+Wednesday 54  -5408.357143 40.740741 -100.154762 -0.847453 -0.392294 0.696414     
+ Thursday 62  35180.464286 61.290323  567.426843  4.561860  2.262755 0.027223     
+   Friday 47 -25228.821429 40.425532 -536.783435 -3.335643 -1.440550 0.156484     
+
+### C — Post-holiday vs normal (IS)
+ post_holiday   n           pnl  win_rate    avg_pnl
+        False 360  38767.500000  52.50000  107.68750
+         True  91 -23776.642857  39.56044 -261.28179
+
+### C — Post-holiday vs normal (OOS)
+ post_holiday   n          pnl  win_rate    avg_pnl
+        False 210 -8548.928571 49.047619 -40.709184
+         True  62  -918.107143 53.225806 -14.808180
+
+Plots saved to C:\trading\nqorderflowbacktester\scripts\gap_reversion_backtest\results/
+
+Wrote C:\trading\nqorderflowbacktester\scripts\gap_reversion_backtest\results\summary.md
+
+DONE.

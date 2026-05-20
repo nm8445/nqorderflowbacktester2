@@ -1,0 +1,144 @@
+loading 15min RTH bars + daily ATR(14)...
+  bar-days: 1516
+  atr days: 1654
+  band-days: 1114
+
+=== multiplier = 0.5 ===
+  trades for mult=0.5: 1044  (elapsed 1s)
+=== multiplier = 1.0 ===
+  trades for mult=1.0: 877  (elapsed 2s)
+=== multiplier = 1.5 ===
+  trades for mult=1.5: 859  (elapsed 3s)
+=== multiplier = 2.0 ===
+  trades for mult=2.0: 854  (elapsed 4s)
+
+wrote C:\trading\nqorderflowbacktester\scripts\orderflowmarketcontext\noise band studies\scripts\vwap_atr_trades_15min.parquet  (3634 total trades)
+
+sample span: 2021-04-19 -> 2025-11-26 (4.61 years)
+
+==============================================================================================================
+MULTIPLIER COMPARISON — overall
+==============================================================================================================
+
+--- multiplier = 0.5 ---
+    ALL trades                                             n= 1044  ( 227/yr)  P(profit)=52.0%  mean= +4.91 pts  total=   +5126  eod%=76%  t=+1.03     
+    LONG only                                              n=  531  ( 115/yr)  P(profit)=56.3%  mean= +8.53 pts  total=   +4531  eod%=78%  t=+1.33     
+    SHORT only                                             n=  513  ( 111/yr)  P(profit)=47.6%  mean= +1.16 pts  total=    +595  eod%=75%  t=+0.16     
+      exit = atr_stop                                      n=  249  (  54/yr)  P(profit)=12.4%  mean=-122.62 pts  total=  -30532  eod%=0%  t=-15.30  ***
+      exit = eod_close                                     n=  795  ( 173/yr)  P(profit)=64.4%  mean=+44.85 pts  total=  +35659  eod%=100%  t=+9.06  ***
+
+--- multiplier = 1.0 ---
+    ALL trades                                             n=  877  ( 190/yr)  P(profit)=54.4%  mean= +1.76 pts  total=   +1542  eod%=97%  t=+0.28     
+    LONG only                                              n=  458  (  99/yr)  P(profit)=58.5%  mean= +6.26 pts  total=   +2869  eod%=97%  t=+0.78     
+    SHORT only                                             n=  419  (  91/yr)  P(profit)=49.9%  mean= -3.17 pts  total=   -1327  eod%=97%  t=-0.34     
+      exit = atr_stop                                      n=   26  (   6/yr)  P(profit)=0.0%  mean=-421.49 pts  total=  -10959  eod%=0%  t=-7.28  ***
+      exit = eod_close                                     n=  851  ( 185/yr)  P(profit)=56.1%  mean=+14.69 pts  total=  +12500  eod%=100%  t=+2.65   **
+
+--- multiplier = 1.5 ---
+    ALL trades                                             n=  859  ( 187/yr)  P(profit)=53.9%  mean= +0.15 pts  total=    +125  eod%=99%  t=+0.02     
+    LONG only                                              n=  450  (  98/yr)  P(profit)=58.0%  mean= +4.76 pts  total=   +2144  eod%=99%  t=+0.56     
+    SHORT only                                             n=  409  (  89/yr)  P(profit)=49.4%  mean= -4.94 pts  total=   -2019  eod%=100%  t=-0.52     
+      exit = atr_stop                                      n=    5  (   1/yr)  P(profit)=0.0%  mean=-623.70 pts  total=   -3118  eod%=0%  t=-3.08    *
+      exit = eod_close                                     n=  854  ( 185/yr)  P(profit)=54.2%  mean= +3.80 pts  total=   +3244  eod%=100%  t=+0.62     
+
+--- multiplier = 2.0 ---
+    ALL trades                                             n=  854  ( 185/yr)  P(profit)=54.1%  mean= +1.28 pts  total=   +1094  eod%=100%  t=+0.21     
+    LONG only                                              n=  448  (  97/yr)  P(profit)=58.3%  mean= +5.87 pts  total=   +2628  eod%=100%  t=+0.70     
+    SHORT only                                             n=  406  (  88/yr)  P(profit)=49.5%  mean= -3.78 pts  total=   -1534  eod%=100%  t=-0.41     
+      exit = eod_close                                     n=  854  ( 185/yr)  P(profit)=54.1%  mean= +1.28 pts  total=   +1094  eod%=100%  t=+0.21     
+
+==============================================================================================================
+MULTIPLIER × GAMMA REGIME (long, NDX-derived)
+==============================================================================================================
+
+mult = 0.5:
+    long + NDX_pos                                         n=  235  (  51/yr)  P(profit)=50.6%  mean= -3.94 pts  total=    -926  eod%=70%  t=-0.51     
+    long + NDX_neg                                         n=  293  (  64/yr)  P(profit)=60.8%  mean=+18.08 pts  total=   +5296  eod%=84%  t=+1.84     
+
+mult = 1.0:
+    long + NDX_pos                                         n=  193  (  42/yr)  P(profit)=54.4%  mean= -0.91 pts  total=    -176  eod%=96%  t=-0.09     
+    long + NDX_neg                                         n=  262  (  57/yr)  P(profit)=61.5%  mean=+11.01 pts  total=   +2884  eod%=98%  t=+0.91     
+
+mult = 1.5:
+    long + NDX_pos                                         n=  192  (  42/yr)  P(profit)=54.2%  mean= -4.77 pts  total=    -916  eod%=99%  t=-0.43     
+    long + NDX_neg                                         n=  255  (  55/yr)  P(profit)=60.8%  mean=+11.37 pts  total=   +2899  eod%=99%  t=+0.92     
+
+mult = 2.0:
+    long + NDX_pos                                         n=  192  (  42/yr)  P(profit)=54.2%  mean= -5.01 pts  total=    -962  eod%=100%  t=-0.44     
+    long + NDX_neg                                         n=  253  (  55/yr)  P(profit)=61.3%  mean=+13.56 pts  total=   +3430  eod%=100%  t=+1.11     
+
+==============================================================================================================
+MULTIPLIER × GAMMA REGIME (short, QQQ-derived)
+==============================================================================================================
+
+mult = 0.5:
+    short + QQQ_pos                                        n=   67  (  15/yr)  P(profit)=44.8%  mean=-10.32 pts  total=    -692  eod%=75%  t=-1.07     
+    short + QQQ_neg                                        n=  442  (  96/yr)  P(profit)=47.5%  mean= +2.62 pts  total=   +1160  eod%=74%  t=+0.32     
+
+mult = 1.0:
+    short + QQQ_pos                                        n=   48  (  10/yr)  P(profit)=43.8%  mean=-17.37 pts  total=    -834  eod%=100%  t=-1.27     
+    short + QQQ_neg                                        n=  367  (  80/yr)  P(profit)=50.1%  mean= -1.69 pts  total=    -620  eod%=96%  t=-0.16     
+
+mult = 1.5:
+    short + QQQ_pos                                        n=   45  (  10/yr)  P(profit)=42.2%  mean=-20.18 pts  total=    -908  eod%=100%  t=-1.41     
+    short + QQQ_neg                                        n=  360  (  78/yr)  P(profit)=49.7%  mean= -3.44 pts  total=   -1238  eod%=99%  t=-0.32     
+
+mult = 2.0:
+    short + QQQ_pos                                        n=   45  (  10/yr)  P(profit)=42.2%  mean=-20.18 pts  total=    -908  eod%=100%  t=-1.41     
+    short + QQQ_neg                                        n=  357  (  78/yr)  P(profit)=49.9%  mean= -2.11 pts  total=    -753  eod%=100%  t=-0.20     
+
+
+==============================================================================================================
+BEST MULTIPLIER (by total PnL) = 0.5
+==============================================================================================================
+
+ALL DIRECTIONS — 30-min entry buckets:
+    09:30-10:00                                            n=  450  (  98/yr)  P(profit)=52.7%  mean= +1.06 pts  total=    +478  eod%=74%  t=+0.13     
+    10:00-10:30                                            n=  102  (  22/yr)  P(profit)=52.9%  mean= +0.50 pts  total=     +51  eod%=84%  t=+0.03     
+    10:30-11:00                                            n=   67  (  15/yr)  P(profit)=55.2%  mean= +7.25 pts  total=    +486  eod%=85%  t=+0.44     
+    11:00-11:30                                            n=   51  (  11/yr)  P(profit)=52.9%  mean=+13.39 pts  total=    +683  eod%=90%  t=+0.56     
+    11:30-12:00                                            n=   46  (  10/yr)  P(profit)=50.0%  mean= +9.80 pts  total=    +451  eod%=87%  t=+0.56     
+    12:00-12:30                                            n=   32  (   7/yr)  P(profit)=43.8%  mean= -2.48 pts  total=     -80  eod%=81%  t=-0.13     
+    12:30-13:00                                            n=   34  (   7/yr)  P(profit)=52.9%  mean=+50.66 pts  total=   +1722  eod%=85%  t=+0.89     
+    13:00-13:30                                            n=   31  (   7/yr)  P(profit)=58.1%  mean=+16.87 pts  total=    +523  eod%=77%  t=+1.09     
+    13:30-14:00                                            n=   29  (   6/yr)  P(profit)=51.7%  mean=+16.88 pts  total=    +490  eod%=59%  t=+1.12     
+    14:00-14:30                                            n=   32  (   7/yr)  P(profit)=50.0%  mean=+17.13 pts  total=    +548  eod%=66%  t=+0.60     
+    14:30-15:00                                            n=   38  (   8/yr)  P(profit)=55.3%  mean= +2.73 pts  total=    +104  eod%=74%  t=+0.17     
+    15:00-15:30                                            n=   43  (   9/yr)  P(profit)=44.2%  mean= -7.86 pts  total=    -338  eod%=63%  t=-0.54     
+    15:30-16:00                                            n=   36  (   8/yr)  P(profit)=55.6%  mean= -0.65 pts  total=     -23  eod%=78%  t=-0.07     
+    16:00-16:30                                            n=   30  (   7/yr)  P(profit)=36.7%  mean= +1.12 pts  total=     +34  eod%=67%  t=+0.42     
+    16:30-17:00                                            n=   23  (   5/yr)  P(profit)=56.5%  mean= -0.07 pts  total=      -2  eod%=57%  t=-0.02     
+
+LONG ONLY — 30-min entry buckets:
+    09:30-10:00                                            n=  242  (  53/yr)  P(profit)=57.0%  mean= +5.73 pts  total=   +1386  eod%=74%  t=+0.62     
+    10:00-10:30                                            n=   49  (  11/yr)  P(profit)=55.1%  mean= -5.88 pts  total=    -288  eod%=82%  t=-0.25     
+    10:30-11:00                                            n=   28  (   6/yr)  P(profit)=53.6%  mean= -7.63 pts  total=    -214  eod%=79%  t=-0.34     
+    11:00-11:30                                            n=   27  (   6/yr)  P(profit)=55.6%  mean= -0.36 pts  total=     -10  eod%=93%  t=-0.02     
+    11:30-12:00                                            n=   29  (   6/yr)  P(profit)=62.1%  mean=+14.53 pts  total=    +422  eod%=83%  t=+0.89     
+    12:00-12:30                                            n=   15  (   3/yr)  P(profit)=53.3%  mean= +4.35 pts  total=     +65  eod%=93%  t=+0.16     
+    12:30-13:00                                            n=   18  (   4/yr)  P(profit)=55.6%  mean=+98.35 pts  total=   +1770  eod%=83%  t=+0.95     
+    13:00-13:30                                            n=   14  (   3/yr)  P(profit)=71.4%  mean=+44.25 pts  total=    +620  eod%=86%  t=+1.98     
+    13:30-14:00                                            n=   14  (   3/yr)  P(profit)=57.1%  mean=+38.89 pts  total=    +544  eod%=64%  t=+1.57     
+    14:00-14:30                                            n=   15  (   3/yr)  P(profit)=60.0%  mean= +9.67 pts  total=    +145  eod%=73%  t=+0.36     
+    14:30-15:00                                            n=   18  (   4/yr)  P(profit)=55.6%  mean=+17.47 pts  total=    +314  eod%=94%  t=+0.76     
+    15:00-15:30                                            n=   18  (   4/yr)  P(profit)=44.4%  mean=-16.04 pts  total=    -289  eod%=67%  t=-1.11     
+    15:30-16:00                                            n=   15  (   3/yr)  P(profit)=60.0%  mean= -7.25 pts  total=    -109  eod%=73%  t=-0.98     
+    16:00-16:30                                            n=   19  (   4/yr)  P(profit)=36.8%  mean= +3.30 pts  total=     +63  eod%=79%  t=+0.87     
+    16:30-17:00                                            n=   10  (   2/yr)  P(profit)=70.0%  mean=+11.07 pts  total=    +111  eod%=60%  t=+1.92     
+
+SHORT ONLY — 30-min entry buckets:
+    09:30-10:00                                            n=  208  (  45/yr)  P(profit)=47.6%  mean= -4.37 pts  total=    -909  eod%=74%  t=-0.33     
+    10:00-10:30                                            n=   53  (  12/yr)  P(profit)=50.9%  mean= +6.41 pts  total=    +340  eod%=87%  t=+0.30     
+    10:30-11:00                                            n=   39  (   8/yr)  P(profit)=56.4%  mean=+17.94 pts  total=    +700  eod%=90%  t=+0.76     
+    11:00-11:30                                            n=   24  (   5/yr)  P(profit)=50.0%  mean=+28.85 pts  total=    +692  eod%=88%  t=+0.66     
+    11:30-12:00                                            n=   17  (   4/yr)  P(profit)=29.4%  mean= +1.72 pts  total=     +29  eod%=94%  t=+0.04     
+    12:00-12:30                                            n=   17  (   4/yr)  P(profit)=35.3%  mean= -8.51 pts  total=    -145  eod%=71%  t=-0.33     
+    12:30-13:00                                            n=   16  (   3/yr)  P(profit)=50.0%  mean= -2.98 pts  total=     -48  eod%=88%  t=-0.08     
+    13:00-13:30                                            n=   17  (   4/yr)  P(profit)=47.1%  mean= -5.68 pts  total=     -96  eod%=71%  t=-0.28     
+    13:30-14:00                                            n=   15  (   3/yr)  P(profit)=46.7%  mean= -3.67 pts  total=     -55  eod%=53%  t=-0.22     
+    14:00-14:30                                            n=   17  (   4/yr)  P(profit)=41.2%  mean=+23.72 pts  total=    +403  eod%=59%  t=+0.48     
+    14:30-15:00                                            n=   20  (   4/yr)  P(profit)=55.0%  mean=-10.54 pts  total=    -211  eod%=55%  t=-0.48     
+    15:00-15:30                                            n=   25  (   5/yr)  P(profit)=44.0%  mean= -1.97 pts  total=     -49  eod%=60%  t=-0.09     
+    15:30-16:00                                            n=   21  (   5/yr)  P(profit)=52.4%  mean= +4.07 pts  total=     +86  eod%=81%  t=+0.29     
+    16:00-16:30                                            n=   11  (   2/yr)  P(profit)=36.4%  mean= -2.66 pts  total=     -29  eod%=45%  t=-0.85     
+    16:30-17:00                                            n=   13  (   3/yr)  P(profit)=46.2%  mean= -8.63 pts  total=    -112  eod%=54%  t=-1.66     

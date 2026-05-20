@@ -1,0 +1,36 @@
+{
+  "rotation_idx": 1,
+  "accounts": [
+    {
+      "name": "Sim101",
+      "equity": 48726.0,
+      "hwm": 50175.0,
+      "dd_floor": 50000.0,
+      "dd_locked": true,
+      "daily_pnl": -1379.0,
+      "best_day_pnl": 175.0,
+      "last_reset_date": "2026-04-18",
+      "blown": true,
+      "passed": false,
+      "target_hit": false,
+      "trades_taken": 4,
+      "phase": "challenge"
+    },
+    {
+      "name": "Simsim102",
+      "equity": 49307.0,
+      "hwm": 50000.0,
+      "dd_floor": 48000.0,
+      "dd_locked": false,
+      "daily_pnl": 0.0,
+      "best_day_pnl": 0.0,
+      "last_reset_date": "2026-04-18",
+      "blown": false,
+      "passed": false,
+      "target_hit": false,
+      "trades_taken": 2,
+      "phase": "challenge"
+    }
+  ],
+  "saved_at": "2026-04-18T13:35:44.466220"
+}

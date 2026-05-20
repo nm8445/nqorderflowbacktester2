@@ -1,0 +1,27 @@
+
+--- Rough Vol ---
+  Real PnL:               +154,745.85
+  Permutation median:     +4,936.32
+  Permutation 5/95%:      -68,943.94 ... +74,459.25
+  Permutation 99%:        +105,043.33
+  Real beats 100.00% of permutations
+  p-value (real >= perm): 0.0000
+  Verdict (need p<0.01): PASS
+
+--- Overnight Drift ---
+  Real PnL:               +130,915.00
+  Permutation median:     +22,362.50
+  Permutation 5/95%:      -44,666.50 ... +98,752.25
+  Permutation 99%:        +131,074.90
+  Real beats 98.90% of permutations
+  p-value (real >= perm): 0.0110
+  Verdict (need p<0.01): FAIL
+
+--- OHI/OLO B2 ---
+  Real PnL:               +6,493.62
+  Permutation median:     +1,960.96
+  Permutation 5/95%:      -1,338.99 ... +5,322.61
+  Permutation 99%:        +6,603.40
+  Real beats 98.70% of permutations
+  p-value (real >= perm): 0.0130
+  Verdict (need p<0.01): FAIL

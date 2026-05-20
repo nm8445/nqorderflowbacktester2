@@ -1,0 +1,87 @@
+================================================================================
+OVERFIT FRAMEWORK — Overnight Drift N=25 yellow-suppress variant
+================================================================================
+
+### Overnight Drift N=25   (1353 trades)
+================================================================================
+Baseline: PnL=$+245,395  PF=1.260  MDD=$-30,370
+
+--- Test 3: Monte Carlo Order Shuffling (10k perms) ---
+  Real MDD:                   $-30,370
+  Median shuffled MDD:        $-42,500
+  5%-95% shuffled MDD band:   $-66,100  ...  $-29,750
+  Real MDD better than 93.9% of random orderings
+  Verdict (need >50%): PASS
+
+--- Test 4: Bootstrap CI (10k resamples) ---
+  Real PnL:        $+245,395
+  95% CI PnL:      $+89,839  ...  $+407,689
+  95% CI PF:       1.088  ...  1.472
+  P(losing PnL):   0.11%
+  P(PF <= 1.0):    0.11%
+  Verdict (P(losing)<1% AND CI lower>0): PASS
+
+--- Test 2: Walk-Forward (rolling 12-mo PF) ---
+  Windows tested:    55
+  PF > 1.0:          45 (81.8%)
+  PF > 1.1:          34 (61.8%)
+  Min window PF:     0.906  (window ending 2023-04)
+  Median window PF:  1.274
+  Verdict (75%+ PF>1): PASS
+
+--- Test 1: Parameter Stability (1D sweeps around locked N=25) ---
+  LOCKED N=25: PnL=$+245,395  PF=1.260  MDD=$-30,370  trades=1353
+
+  Sweep yellow_suppress_bars: [15, 20, 22, 25, 28, 30, 35]
+    yellow_suppress_bars=15  trades= 1356  PnL=$   +220,640  PF=1.284  MDD=$   -31,200
+    yellow_suppress_bars=20  trades= 1355  PnL=$   +211,815  PF=1.253  MDD=$   -33,855
+    yellow_suppress_bars=22  trades= 1353  PnL=$   +236,750  PF=1.277  MDD=$   -31,790
+    yellow_suppress_bars=25  trades= 1353  PnL=$   +245,395  PF=1.260  MDD=$   -30,370  *LOCKED*
+    yellow_suppress_bars=28  trades= 1353  PnL=$   +245,950  PF=1.248  MDD=$   -33,795
+    yellow_suppress_bars=30  trades= 1353  PnL=$   +259,020  PF=1.256  MDD=$   -32,195
+    yellow_suppress_bars=35  trades= 1353  PnL=$   +299,020  PF=1.289  MDD=$   -34,150
+    -> PASS  PnL range relative to locked: 0.86x .. 1.22x
+
+  Sweep yellow_atr_mult: [1.1, 1.2, 1.3, 1.4, 1.5]
+    yellow_atr_mult=1.1  trades= 1353  PnL=$   +240,730  PF=1.261  MDD=$   -40,380
+    yellow_atr_mult=1.2  trades= 1353  PnL=$   +246,735  PF=1.265  MDD=$   -39,860
+    yellow_atr_mult=1.3  trades= 1353  PnL=$   +245,395  PF=1.260  MDD=$   -30,370  *LOCKED*
+    yellow_atr_mult=1.4  trades= 1353  PnL=$   +254,200  PF=1.266  MDD=$   -29,750
+    yellow_atr_mult=1.5  trades= 1353  PnL=$   +232,930  PF=1.237  MDD=$   -44,690
+    -> PASS  PnL range relative to locked: 0.95x .. 1.04x
+
+  Sweep green_base: [65.0, 75.0, 82.5, 90.0, 100.0]
+    green_base=65.0  trades= 1353  PnL=$   +241,490  PF=1.259  MDD=$   -46,405
+    green_base=75.0  trades= 1353  PnL=$   +234,810  PF=1.249  MDD=$   -40,185
+    green_base=82.5  trades= 1353  PnL=$   +245,395  PF=1.260  MDD=$   -30,370  *LOCKED*
+    green_base=90.0  trades= 1353  PnL=$   +245,695  PF=1.258  MDD=$   -29,665
+    green_base=100.0  trades= 1353  PnL=$   +260,495  PF=1.272  MDD=$   -36,370
+    -> PASS  PnL range relative to locked: 0.96x .. 1.06x
+
+  Sweep green_decay: [1.0, 1.25, 1.5, 1.75, 2.0]
+    green_decay=1.0  trades= 1353  PnL=$   +254,190  PF=1.268  MDD=$   -33,630
+    green_decay=1.25  trades= 1353  PnL=$   +259,300  PF=1.273  MDD=$   -30,520
+    green_decay=1.5  trades= 1353  PnL=$   +245,395  PF=1.260  MDD=$   -30,370  *LOCKED*
+    green_decay=1.75  trades= 1353  PnL=$   +234,640  PF=1.249  MDD=$   -38,865
+    green_decay=2.0  trades= 1353  PnL=$   +239,365  PF=1.254  MDD=$   -41,460
+    -> PASS  PnL range relative to locked: 0.96x .. 1.06x
+
+  Sweep green_atr_mult: [0.5, 0.75, 1.0, 1.25, 1.5]
+    green_atr_mult=0.5  trades= 1353  PnL=$   +219,045  PF=1.234  MDD=$   -45,965
+    green_atr_mult=0.75  trades= 1353  PnL=$   +227,440  PF=1.241  MDD=$   -40,940
+    green_atr_mult=1.0  trades= 1353  PnL=$   +245,395  PF=1.260  MDD=$   -30,370  *LOCKED*
+    green_atr_mult=1.25  trades= 1353  PnL=$   +254,270  PF=1.266  MDD=$   -29,240
+    green_atr_mult=1.5  trades= 1353  PnL=$   +256,375  PF=1.265  MDD=$   -35,600
+    -> PASS  PnL range relative to locked: 0.89x .. 1.04x
+
+  OVERALL Test 1: PASS
+
+--- Test 5: Direction Permutation (1000 perms) ---
+  Real PnL (all long, no-mart): $+116,350
+  (221s for 1000 perms across 6 workers)
+  Perm median:     $-3,142
+  Perm 5/95%:      $-98,011  ...  $+97,808
+  Perm 99%:        $+132,823
+  Real beats 98.00% of perms
+  p-value: 0.0210
+  Verdict (p<0.01): FAIL

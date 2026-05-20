@@ -1,0 +1,114 @@
+Phase 2 - top robust enriched configs (IS PF > 1 AND OOS PF > 1)
+Min total trades = 500
+
+=== 15m bars - top 30 robust ===
+15m N=275 Z=100 EMA=40 HZ=1.45 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  393t PF 1.38 $  +39,781 DD$   -8,711 | OOS 141t PF 1.96 $ +30,621 DD$   -6,024 | TOT  534t PF 1.51 $  +70,402
+15m N=275 Z=100 EMA=60 HZ=1.40 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  401t PF 1.38 $  +40,270 DD$   -8,261 | OOS 147t PF 1.73 $ +25,895 DD$   -6,024 | TOT  548t PF 1.46 $  +66,165
+15m N=275 Z=100 EMA=40 HZ=1.40 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  402t PF 1.36 $  +38,710 DD$   -8,261 | OOS 148t PF 2.07 $ +33,918 DD$   -6,024 | TOT  550t PF 1.52 $  +72,628
+15m N=275 Z=100 EMA=80 HZ=1.45 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  392t PF 1.35 $  +37,548 DD$   -8,711 | OOS 140t PF 1.90 $ +28,315 DD$   -6,024 | TOT  532t PF 1.48 $  +65,863
+15m N=300 Z=100 EMA=60 HZ=1.40 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  399t PF 1.34 $  +36,907 DD$   -9,074 | OOS 150t PF 1.63 $ +23,959 DD$   -6,871 | TOT  549t PF 1.42 $  +60,865
+15m N=175 Z= 75 EMA=60 HZ=1.85 SL=2.5 TP=0.75 |      multi_pd50_K4 | gamma=    none | IS  541t PF 1.33 $  +56,558 DD$  -17,638 | OOS  69t PF 1.37 $ +12,025 DD$   -7,072 | TOT  610t PF 1.34 $  +68,583
+15m N=325 Z=100 EMA=60 HZ=1.40 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  401t PF 1.32 $  +35,217 DD$   -9,139 | OOS 145t PF 1.49 $ +19,429 DD$   -8,913 | TOT  546t PF 1.37 $  +54,646
+15m N=225 Z=175 EMA=40 HZ=1.90 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  574t PF 1.32 $  +61,289 DD$  -15,882 | OOS 107t PF 1.77 $ +32,929 DD$  -13,704 | TOT  681t PF 1.40 $  +94,218
+15m N=175 Z= 75 EMA=60 HZ=1.85 SL=2.5 TP=0.75 |      multi_pd50_K4 | gamma=drop_pos | IS  458t PF 1.32 $  +47,594 DD$  -18,749 | OOS  55t PF 1.40 $ +11,037 DD$   -6,278 | TOT  513t PF 1.33 $  +58,632
+15m N=225 Z=200 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  460t PF 1.31 $  +48,964 DD$  -14,813 | OOS  83t PF 1.87 $ +27,618 DD$  -11,097 | TOT  543t PF 1.41 $  +76,582
+15m N=200 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  542t PF 1.31 $  +57,261 DD$  -14,139 | OOS 105t PF 1.89 $ +35,748 DD$  -13,565 | TOT  647t PF 1.42 $  +93,008
+15m N=275 Z=100 EMA=40 HZ=1.50 SL=2.5 TP=0.75 |         gamma_only | gamma=drop_neg | IS  379t PF 1.31 $  +32,875 DD$  -10,108 | OOS 139t PF 2.00 $ +31,012 DD$   -5,529 | TOT  518t PF 1.47 $  +63,887
+15m N=200 Z=175 EMA=40 HZ=1.95 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  549t PF 1.31 $  +57,532 DD$  -14,139 | OOS 105t PF 1.89 $ +35,748 DD$  -13,565 | TOT  654t PF 1.41 $  +93,280
+15m N=275 Z=175 EMA=60 HZ=1.75 SL=2.5 TP=0.75 |     window_N3_D100 | gamma=drop_pos | IS  675t PF 1.31 $  +69,737 DD$  -13,186 | OOS 121t PF 1.43 $ +22,744 DD$  -12,360 | TOT  796t PF 1.33 $  +92,481
+15m N=225 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  543t PF 1.31 $  +56,771 DD$  -13,164 | OOS 104t PF 1.81 $ +33,153 DD$  -12,498 | TOT  647t PF 1.40 $  +89,924
+15m N=275 Z=175 EMA=40 HZ=1.80 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  579t PF 1.30 $  +60,064 DD$  -13,366 | OOS 108t PF 1.78 $ +34,214 DD$  -12,620 | TOT  687t PF 1.39 $  +94,278
+15m N=225 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  625t PF 1.30 $  +62,380 DD$  -13,164 | OOS 129t PF 1.84 $ +39,322 DD$  -12,021 | TOT  754t PF 1.40 $ +101,702
+15m N=100 Z= 75 EMA=80 HZ=1.80 SL=2.5 TP=0.75 |      multi_pd50_K4 | gamma=    none | IS  547t PF 1.30 $  +53,004 DD$  -19,983 | OOS  67t PF 1.47 $ +14,256 DD$   -6,278 | TOT  614t PF 1.32 $  +67,260
+15m N=250 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  547t PF 1.30 $  +55,949 DD$  -14,916 | OOS 105t PF 1.82 $ +33,546 DD$  -11,929 | TOT  652t PF 1.39 $  +89,495
+15m N=225 Z=200 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  525t PF 1.30 $  +52,313 DD$  -13,845 | OOS 104t PF 1.83 $ +31,497 DD$  -10,619 | TOT  629t PF 1.39 $  +83,810
+15m N=200 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  619t PF 1.30 $  +61,247 DD$  -14,139 | OOS 130t PF 1.91 $ +41,608 DD$  -13,087 | TOT  749t PF 1.41 $ +102,854
+15m N=275 Z=175 EMA=80 HZ=1.80 SL=2.5 TP=0.75 |     window_N3_D100 | gamma=drop_pos | IS  673t PF 1.30 $  +68,780 DD$  -13,304 | OOS 120t PF 1.30 $ +16,834 DD$  -12,387 | TOT  793t PF 1.30 $  +85,613
+15m N=200 Z=175 EMA=60 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  557t PF 1.29 $  +56,305 DD$  -12,492 | OOS 108t PF 1.73 $ +31,902 DD$  -11,325 | TOT  665t PF 1.38 $  +88,207
+15m N=200 Z=175 EMA=40 HZ=1.95 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  628t PF 1.29 $  +61,820 DD$  -14,139 | OOS 130t PF 1.91 $ +41,608 DD$  -13,087 | TOT  758t PF 1.40 $ +103,427
+15m N=250 Z=200 EMA=60 HZ=1.90 SL=2.5 TP=0.75 |     window_N3_D100 | gamma=drop_pos | IS  543t PF 1.31 $  +57,201 DD$  -13,567 | OOS  91t PF 1.29 $ +12,466 DD$  -11,567 | TOT  634t PF 1.31 $  +69,666
+15m N=225 Z=175 EMA=40 HZ=1.90 SL=2.5 TP=0.75 |     window_N3_D100 | gamma=drop_pos | IS  635t PF 1.29 $  +62,701 DD$  -13,766 | OOS 114t PF 1.51 $ +23,722 DD$  -12,545 | TOT  749t PF 1.33 $  +86,422
+15m N=275 Z=175 EMA=40 HZ=1.80 SL=2.5 TP=0.75 |     window_N3_D100 | gamma=drop_pos | IS  654t PF 1.29 $  +64,978 DD$  -15,908 | OOS 118t PF 1.54 $ +26,171 DD$  -14,362 | TOT  772t PF 1.34 $  +91,149
+15m N=225 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 |     window_N3_D100 | gamma=drop_pos | IS  605t PF 1.29 $  +59,908 DD$  -13,129 | OOS 109t PF 1.57 $ +24,738 DD$  -11,339 | TOT  714t PF 1.34 $  +84,646
+15m N=225 Z=175 EMA=40 HZ=1.90 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  657t PF 1.29 $  +64,255 DD$  -13,788 | OOS 133t PF 1.81 $ +39,601 DD$  -13,226 | TOT  790t PF 1.39 $ +103,856
+15m N=200 Z=175 EMA=60 HZ=2.00 SL=2.5 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  634t PF 1.29 $  +61,846 DD$  -12,492 | OOS 133t PF 1.76 $ +37,762 DD$  -10,848 | TOT  767t PF 1.38 $  +99,608
+
+=== 20m bars - top 30 robust ===
+20m N=225 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  565t PF 1.41 $  +79,193 DD$  -13,219 | OOS 100t PF 1.54 $ +23,820 DD$   -9,115 | TOT  665t PF 1.44 $ +103,013
+20m N=225 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  657t PF 1.40 $  +87,161 DD$  -13,219 | OOS 124t PF 1.61 $ +29,899 DD$   -9,450 | TOT  781t PF 1.44 $ +117,061
+20m N=225 Z= 75 EMA=60 HZ=1.80 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  667t PF 1.43 $  +94,467 DD$  -13,247 | OOS 128t PF 1.40 $ +22,725 DD$  -11,892 | TOT  795t PF 1.43 $ +117,191
+20m N=225 Z= 75 EMA=40 HZ=1.85 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  554t PF 1.40 $  +75,259 DD$  -15,250 | OOS  97t PF 1.52 $ +22,768 DD$   -9,115 | TOT  651t PF 1.42 $  +98,028
+20m N=225 Z= 75 EMA=40 HZ=1.90 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  545t PF 1.39 $  +73,614 DD$  -15,250 | OOS  96t PF 1.50 $ +21,895 DD$   -9,115 | TOT  641t PF 1.41 $  +95,509
+20m N=250 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  670t PF 1.39 $  +86,960 DD$  -13,931 | OOS 121t PF 1.50 $ +25,815 DD$   -9,115 | TOT  791t PF 1.41 $ +112,775
+20m N=225 Z= 75 EMA=40 HZ=1.85 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  646t PF 1.38 $  +83,228 DD$  -15,250 | OOS 121t PF 1.59 $ +28,847 DD$   -9,450 | TOT  767t PF 1.42 $ +112,075
+20m N=250 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  575t PF 1.38 $  +76,829 DD$  -15,500 | OOS  99t PF 1.43 $ +20,077 DD$   -9,115 | TOT  674t PF 1.39 $  +96,907
+20m N=225 Z= 75 EMA=40 HZ=1.90 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  634t PF 1.38 $  +81,140 DD$  -15,250 | OOS 119t PF 1.56 $ +27,467 DD$   -9,450 | TOT  753t PF 1.41 $ +108,607
+20m N=250 Z= 75 EMA=40 HZ=1.85 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  658t PF 1.38 $  +83,651 DD$  -13,931 | OOS 119t PF 1.47 $ +24,266 DD$   -9,115 | TOT  777t PF 1.39 $ +107,916
+20m N=250 Z= 75 EMA=40 HZ=1.85 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  565t PF 1.38 $  +74,301 DD$  -13,931 | OOS  97t PF 1.39 $ +18,528 DD$   -9,115 | TOT  662t PF 1.38 $  +92,829
+20m N=250 Z= 75 EMA=40 HZ=1.90 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  645t PF 1.37 $  +81,056 DD$  -15,115 | OOS 116t PF 1.43 $ +22,156 DD$   -9,115 | TOT  761t PF 1.38 $ +103,212
+20m N=225 Z= 75 EMA=40 HZ=1.95 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  617t PF 1.37 $  +77,584 DD$  -15,250 | OOS 117t PF 1.53 $ +25,986 DD$   -9,999 | TOT  734t PF 1.40 $ +103,570
+20m N=250 Z= 75 EMA=40 HZ=1.70 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  683t PF 1.37 $  +84,684 DD$  -13,311 | OOS 130t PF 1.52 $ +28,188 DD$   -9,115 | TOT  813t PF 1.40 $ +112,872
+20m N=225 Z= 75 EMA=60 HZ=1.80 SL=3.0 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  664t PF 1.36 $  +86,645 DD$  -15,122 | OOS 140t PF 1.44 $ +31,449 DD$   -8,974 | TOT  804t PF 1.38 $ +118,094
+20m N=250 Z= 75 EMA=40 HZ=1.70 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  585t PF 1.36 $  +74,189 DD$  -14,258 | OOS 104t PF 1.47 $ +22,538 DD$   -9,115 | TOT  689t PF 1.38 $  +96,727
+20m N=225 Z= 75 EMA=40 HZ=1.70 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  585t PF 1.36 $  +74,008 DD$  -14,258 | OOS 109t PF 1.49 $ +24,069 DD$   -9,115 | TOT  694t PF 1.39 $  +98,077
+20m N=250 Z= 75 EMA=40 HZ=1.75 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  674t PF 1.36 $  +82,631 DD$  -13,931 | OOS 125t PF 1.46 $ +24,631 DD$   -9,115 | TOT  799t PF 1.38 $ +107,261
+20m N=225 Z= 75 EMA=60 HZ=1.80 SL=3.0 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  766t PF 1.36 $  +95,865 DD$  -15,122 | OOS 176t PF 1.38 $ +32,858 DD$  -16,391 | TOT  942t PF 1.37 $ +128,723
+20m N=225 Z= 75 EMA=40 HZ=1.95 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  531t PF 1.36 $  +67,183 DD$  -15,250 | OOS  94t PF 1.47 $ +20,414 DD$   -9,543 | TOT  625t PF 1.38 $  +87,597
+20m N=150 Z=125 EMA=20 HZ=2.00 SL=3.0 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  625t PF 1.36 $  +79,233 DD$  -15,463 | OOS 139t PF 1.89 $ +45,386 DD$   -8,862 | TOT  764t PF 1.46 $ +124,619
+20m N=250 Z= 75 EMA=40 HZ=1.75 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  578t PF 1.35 $  +71,910 DD$  -14,878 | OOS 100t PF 1.41 $ +19,692 DD$   -9,115 | TOT  678t PF 1.36 $  +91,602
+20m N=250 Z= 75 EMA=60 HZ=1.90 SL=3.0 TP=0.75 |      multi_pd50_K2 | gamma=drop_pos | IS  654t PF 1.35 $  +83,351 DD$  -14,444 | OOS 137t PF 1.35 $ +26,028 DD$  -11,320 | TOT  791t PF 1.35 $ +109,379
+20m N=250 Z= 75 EMA=40 HZ=1.90 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  552t PF 1.37 $  +71,656 DD$  -15,115 | OOS  94t PF 1.35 $ +16,418 DD$   -9,115 | TOT  646t PF 1.37 $  +88,075
+20m N=225 Z= 75 EMA=40 HZ=1.70 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  682t PF 1.35 $  +80,750 DD$  -13,311 | OOS 136t PF 1.53 $ +29,555 DD$   -9,115 | TOT  818t PF 1.38 $ +110,305
+20m N=225 Z= 75 EMA=40 HZ=1.75 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=drop_pos | IS  577t PF 1.34 $  +70,431 DD$  -14,878 | OOS 102t PF 1.45 $ +21,283 DD$   -9,115 | TOT  679t PF 1.36 $  +91,714
+20m N=225 Z= 75 EMA=40 HZ=1.75 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  670t PF 1.34 $  +78,593 DD$  -13,931 | OOS 128t PF 1.48 $ +26,056 DD$   -9,115 | TOT  798t PF 1.37 $ +104,649
+20m N=250 Z= 75 EMA=40 HZ=1.95 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  629t PF 1.34 $  +73,859 DD$  -15,963 | OOS 115t PF 1.41 $ +21,208 DD$   -9,115 | TOT  744t PF 1.35 $  +95,067
+20m N=225 Z= 75 EMA=40 HZ=2.00 SL=3.0 TP=0.75 |     window_N5_D150 | gamma=    none | IS  611t PF 1.34 $  +71,764 DD$  -14,440 | OOS 114t PF 1.53 $ +25,695 DD$   -9,999 | TOT  725t PF 1.37 $  +97,459
+20m N=250 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 |      multi_pd50_K2 | gamma=    none | IS  772t PF 1.34 $  +91,841 DD$  -15,339 | OOS 172t PF 1.45 $ +36,418 DD$  -18,906 | TOT  944t PF 1.36 $ +128,259
+
+=== Lift comparison (baseline vs best enriched per base config) ===
+
+--- 15m ---
+  base config -> baseline_pf -> best_pf (variant/gamma, trades)
+  N=275 Z=100 EMA=60 HZ=1.40 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.38 (gamma_only, gamma=drop_neg, 548t)
+  N=275 Z=100 EMA=40 HZ=1.45 SL=2.5 TP=0.75 | baseline PF1.19 -> best PF1.38 (gamma_only, gamma=drop_neg, 534t)
+  N=275 Z=100 EMA=40 HZ=1.40 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.36 (gamma_only, gamma=drop_neg, 550t)
+  N=300 Z=100 EMA=60 HZ=1.40 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.34 (gamma_only, gamma=drop_neg, 549t)
+  N=175 Z= 75 EMA=60 HZ=1.85 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.33 (multi_pd50_K4, gamma=none, 610t)
+  N=325 Z=100 EMA=60 HZ=1.40 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.32 (gamma_only, gamma=drop_neg, 546t)
+  N=225 Z=175 EMA=40 HZ=1.90 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.32 (multi_pd50_K2, gamma=drop_pos, 681t)
+  N=275 Z=100 EMA=80 HZ=1.45 SL=2.5 TP=0.75 | baseline PF1.21 -> best PF1.35 (gamma_only, gamma=drop_neg, 532t)
+  N=225 Z=200 EMA=40 HZ=2.00 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.31 (multi_pd50_K2, gamma=drop_pos, 543t)
+  N=200 Z=175 EMA=40 HZ=1.95 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.31 (multi_pd50_K2, gamma=drop_pos, 654t)
+  N=275 Z=175 EMA=60 HZ=1.75 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.31 (window_N3_D100, gamma=drop_pos, 796t)
+  N=225 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.31 (multi_pd50_K2, gamma=drop_pos, 647t)
+  N=200 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 | baseline PF1.19 -> best PF1.31 (multi_pd50_K2, gamma=drop_pos, 647t)
+  N=100 Z= 75 EMA=80 HZ=1.80 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.30 (multi_pd50_K4, gamma=none, 614t)
+  N=275 Z=175 EMA=80 HZ=1.80 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.30 (window_N3_D100, gamma=drop_pos, 793t)
+  N=250 Z=200 EMA=60 HZ=1.90 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.29 (window_N3_D100, gamma=drop_pos, 634t)
+  N=250 Z=175 EMA=40 HZ=2.00 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.30 (multi_pd50_K2, gamma=drop_pos, 652t)
+  N=200 Z=175 EMA=60 HZ=2.00 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.29 (multi_pd50_K2, gamma=drop_pos, 665t)
+  N=275 Z=175 EMA=40 HZ=1.80 SL=2.5 TP=0.75 | baseline PF1.19 -> best PF1.30 (multi_pd50_K2, gamma=drop_pos, 687t)
+  N=250 Z=200 EMA=40 HZ=1.90 SL=2.5 TP=0.75 | baseline PF1.18 -> best PF1.29 (multi_pd50_K2, gamma=drop_pos, 558t)
+
+--- 20m ---
+  base config -> baseline_pf -> best_pf (variant/gamma, trades)
+  N=225 Z= 75 EMA=60 HZ=1.80 SL=3.0 TP=0.75 | baseline PF1.21 -> best PF1.40 (window_N5_D150, gamma=none, 795t)
+  N=225 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 | baseline PF1.23 -> best PF1.41 (window_N5_D150, gamma=drop_pos, 665t)
+  N=250 Z= 75 EMA=40 HZ=1.85 SL=3.0 TP=0.75 | baseline PF1.20 -> best PF1.38 (window_N5_D150, gamma=none, 777t)
+  N=250 Z= 75 EMA=40 HZ=1.80 SL=3.0 TP=0.75 | baseline PF1.21 -> best PF1.39 (window_N5_D150, gamma=none, 791t)
+  N=250 Z= 75 EMA=40 HZ=1.70 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.37 (window_N5_D150, gamma=none, 813t)
+  N=250 Z= 75 EMA=40 HZ=1.90 SL=3.0 TP=0.75 | baseline PF1.20 -> best PF1.37 (window_N5_D150, gamma=none, 761t)
+  N=250 Z= 75 EMA=60 HZ=1.90 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.35 (multi_pd50_K2, gamma=drop_pos, 791t)
+  N=150 Z=125 EMA=20 HZ=2.00 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.36 (multi_pd50_K2, gamma=none, 764t)
+  N=225 Z= 75 EMA=40 HZ=1.85 SL=3.0 TP=0.75 | baseline PF1.23 -> best PF1.40 (window_N5_D150, gamma=drop_pos, 651t)
+  N=250 Z= 75 EMA=40 HZ=1.75 SL=3.0 TP=0.75 | baseline PF1.20 -> best PF1.36 (window_N5_D150, gamma=none, 799t)
+  N=225 Z= 75 EMA=40 HZ=1.70 SL=3.0 TP=0.75 | baseline PF1.20 -> best PF1.36 (window_N5_D150, gamma=drop_pos, 694t)
+  N=225 Z= 75 EMA=40 HZ=1.90 SL=3.0 TP=0.75 | baseline PF1.23 -> best PF1.39 (window_N5_D150, gamma=drop_pos, 641t)
+  N=175 Z=100 EMA=20 HZ=1.90 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.33 (window_N10_D150, gamma=drop_pos, 827t)
+  N=250 Z= 75 EMA=40 HZ=1.95 SL=3.0 TP=0.75 | baseline PF1.20 -> best PF1.34 (window_N5_D150, gamma=none, 744t)
+  N=200 Z= 75 EMA=40 HZ=1.95 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.33 (window_N5_D150, gamma=drop_pos, 633t)
+  N=250 Z= 75 EMA=40 HZ=2.00 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.32 (window_N5_D150, gamma=none, 733t)
+  N=225 Z= 75 EMA=40 HZ=1.75 SL=3.0 TP=0.75 | baseline PF1.21 -> best PF1.34 (window_N5_D150, gamma=drop_pos, 679t)
+  N=175 Z=100 EMA=40 HZ=1.95 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.32 (window_N5_D150, gamma=drop_pos, 583t)
+  N=225 Z= 75 EMA=40 HZ=1.95 SL=3.0 TP=0.75 | baseline PF1.23 -> best PF1.37 (window_N5_D150, gamma=none, 734t)
+  N=200 Z= 75 EMA=40 HZ=2.00 SL=3.0 TP=0.75 | baseline PF1.19 -> best PF1.33 (window_N5_D150, gamma=none, 733t)

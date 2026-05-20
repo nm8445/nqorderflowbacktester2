@@ -1,0 +1,17 @@
+LucidFlex 50K — Monte Carlo on combined 3-strategy log
+5000 sims/cell, 252-day horizon, bootstrap from 1354 historical days (2020-12 .. 2026-05)
+Rules: $2K EOD trailing DD (locks at $50K floor once balance reaches $53K),
+       5 days >= $150 profit per payout cycle, $2K cap per payout (trader's 90%),
+       6 payouts max then auto-graduate to LucidLive.
+
+ mnq     mode  bust_rate  any_payout_rate  graduate_rate  median_payouts  mean_payouts  p10_payouts  p90_payouts  median_total_$  mean_total_$  p25_total_$  p75_total_$  avg_per_payout_$  median_days_to_first_payout  p25_days_to_first  p75_days_to_first
+   1  stagger      0.330            0.781          0.183               4         3.120            0            6        4050.000      3159.540     1350.000     4950.000          1054.553                           51                 34                 74
+   1 buffer2k      0.401            0.777          0.568               6         4.053            0            6        4727.054      3820.751     1073.372     5734.294           948.329                           52                 35                 74
+   2  stagger      0.595            0.602          0.386               1         2.703            0            6        1350.000      2703.240        0.000     5850.000          1069.931                           18                 11                 26
+   2 buffer2k      0.716            0.590          0.284               2         2.507            0            6        1742.937      3275.098        0.000     6724.399          1280.742                           17                 12                 26
+   3  stagger      0.678            0.538          0.318               1         2.266            0            6        1350.000      2281.590        0.000     5850.000          1088.863                           10                  7                 15
+   3 buffer2k      0.796            0.525          0.204               1         1.973            0            6        1033.453      3055.680        0.000     6321.386          1486.305                           10                  7                 14
+   4  stagger      0.721            0.500          0.279               0         2.035            0            6           0.000      2056.680        0.000     5850.000          1095.913                            8                  6                 11
+   4 buffer2k      0.795            0.495          0.205               0         1.841            0            6           0.000      3069.540        0.000     5906.118          1597.221                            8                  6                 10
+   5  stagger      0.730            0.471          0.269               0         1.943            0            6           0.000      1960.920        0.000     5850.000          1093.566                            7                  6                  9
+   5 buffer2k      0.787            0.472          0.213               0         1.790            0            6           0.000      3089.140        0.000     5400.000          1669.146                            7                  6                  9

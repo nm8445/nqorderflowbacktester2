@@ -1,0 +1,48 @@
+Hola Prime $100k / $10k DD pass-rate MC with optional OD per-trade cutoff
+==========================================================================================
+
+PASS RATE (% of 5000 sims passing 10% target before bust):
+
+dd_mode static_from_initial                   trailing_to_initial                  
+mnq                       1     2     3     4                   1     2     3     4
+cutoff                                                                             
+10000                  75.3  79.5  84.9  77.7                75.5  72.6  66.6  59.6
+12500                  80.8  80.6  86.1  72.3                79.8  76.3  71.0  57.2
+15000                  79.0  81.6  86.5  73.1                79.0  75.8  70.2  59.2
+none                   87.2  89.9  77.9  72.3                85.4  81.3  66.4  57.4
+
+
+Detail per cell:
+cutoff  mnq             dd_mode  pass_rate  median_days  p25  p75  bust_dd_unreal  bust_dd_real  bust_daily_unreal  bust_daily_real  bust_horizon
+  none    1 trailing_to_initial     0.8540          222  173  276          0.0050        0.0002             0.0000              0.0        0.1408
+  none    1 static_from_initial     0.8722          220  173  277          0.0000        0.0000             0.0000              0.0        0.1278
+  none    2 trailing_to_initial     0.8130          104   74  147          0.1122        0.0050             0.0662              0.0        0.0036
+  none    2 static_from_initial     0.8994          107   75  154          0.0046        0.0002             0.0860              0.0        0.0098
+  none    3 trailing_to_initial     0.6638           57   38   82          0.2188        0.0198             0.0976              0.0        0.0000
+  none    3 static_from_initial     0.7790           64   42   94          0.0288        0.0010             0.1910              0.0        0.0002
+  none    4 trailing_to_initial     0.5738           36   24   54          0.2916        0.0350             0.0996              0.0        0.0000
+  none    4 static_from_initial     0.7234           43   27   65          0.0664        0.0024             0.2078              0.0        0.0000
+ 15000    1 trailing_to_initial     0.7896          228  179  284          0.0150        0.0010             0.0000              0.0        0.1944
+ 15000    1 static_from_initial     0.7900          226  178  281          0.0004        0.0000             0.0000              0.0        0.2096
+ 15000    2 trailing_to_initial     0.7576          104   73  144          0.1236        0.0062             0.1104              0.0        0.0022
+ 15000    2 static_from_initial     0.8156          107   74  156          0.0060        0.0004             0.1686              0.0        0.0094
+ 15000    3 trailing_to_initial     0.7020           58   40   84          0.2670        0.0184             0.0126              0.0        0.0000
+ 15000    3 static_from_initial     0.8646           67   44  103          0.0476        0.0016             0.0848              0.0        0.0014
+ 15000    4 trailing_to_initial     0.5920           37   25   54          0.2490        0.0324             0.1266              0.0        0.0000
+ 15000    4 static_from_initial     0.7314           42   27   65          0.0426        0.0020             0.2240              0.0        0.0000
+ 12500    1 trailing_to_initial     0.7978          229  178  284          0.0110        0.0014             0.0000              0.0        0.1898
+ 12500    1 static_from_initial     0.8084          227  176  284          0.0000        0.0000             0.0000              0.0        0.1916
+ 12500    2 trailing_to_initial     0.7634          104   74  144          0.1050        0.0062             0.1238              0.0        0.0016
+ 12500    2 static_from_initial     0.8064          106   74  155          0.0052        0.0004             0.1760              0.0        0.0120
+ 12500    3 trailing_to_initial     0.7104           58   40   84          0.2454        0.0166             0.0276              0.0        0.0000
+ 12500    3 static_from_initial     0.8614           66   43  101          0.0410        0.0010             0.0956              0.0        0.0010
+ 12500    4 trailing_to_initial     0.5722           36   25   53          0.2492        0.0316             0.1470              0.0        0.0000
+ 12500    4 static_from_initial     0.7228           42   28   65          0.0378        0.0022             0.2372              0.0        0.0000
+ 10000    1 trailing_to_initial     0.7554          234  181  290          0.0108        0.0010             0.0000              0.0        0.2328
+ 10000    1 static_from_initial     0.7528          235  183  291          0.0002        0.0000             0.0000              0.0        0.2470
+ 10000    2 trailing_to_initial     0.7262          105   74  150          0.1220        0.0092             0.1380              0.0        0.0046
+ 10000    2 static_from_initial     0.7954          113   77  162          0.0084        0.0008             0.1834              0.0        0.0120
+ 10000    3 trailing_to_initial     0.6656           60   41   87          0.2710        0.0214             0.0420              0.0        0.0000
+ 10000    3 static_from_initial     0.8488           68   44  108          0.0446        0.0014             0.1036              0.0        0.0016
+ 10000    4 trailing_to_initial     0.5962           38   25   56          0.3314        0.0370             0.0354              0.0        0.0000
+ 10000    4 static_from_initial     0.7772           45   29   71          0.0962        0.0056             0.1210              0.0        0.0000

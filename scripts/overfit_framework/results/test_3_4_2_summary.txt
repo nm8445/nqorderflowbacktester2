@@ -1,0 +1,99 @@
+====================================================================================================
+OVERFIT FRAMEWORK — Tests 2, 3, 4 (trade-log based)
+====================================================================================================
+
+
+### Rough Vol Orderflow   (814 trades)
+====================================================================================================
+
+Baseline: trades=814  total_pnl=$+153,549  PF=1.312  MDD=$-16,957
+
+--- Test 3: Monte Carlo Order Shuffling (10k perms) ---
+  Real MDD:                   $-16,957
+  Median shuffled MDD:        $-23,936
+  5%-95% shuffled MDD band:   $-37,385  ... $-16,755
+  Real MDD better than 94.2% of random orderings
+  Verdict (need >50%): PASS
+
+--- Test 4: Bootstrap CI (10k resamples) ---
+  Real PnL:        $+153,549
+  Mean resampled:  $+153,446
+  95% CI PnL:      $+59,506  ... $+244,831
+  95% CI PF:       1.111  ...  1.546
+  P(losing PnL):   0.07%
+  P(PF <= 1.0):    0.07%
+  Verdict (need P(losing)<1% AND CI lower>0): PASS
+
+--- Test 2: Walk-Forward (rolling 12-month PF, locked config) ---
+  Windows tested:           54
+  Windows with PF > 1.0:    46 (85.2%)
+  Windows with PF > 1.1:    40 (74.1%)
+  Min window PF:            0.951
+  Max window PF:            1.716
+  Median window PF:         1.347
+  Worst window:             2024-04  PF=0.951  PnL=$-4,825
+  Verdict (need 75%+ windows PF>1): PASS
+
+
+### Overnight Drift   (1357 trades)
+====================================================================================================
+
+Baseline: trades=1357  total_pnl=$+208,450  PF=1.286  MDD=$-28,155
+
+--- Test 3: Monte Carlo Order Shuffling (10k perms) ---
+  Real MDD:                   $-28,155
+  Median shuffled MDD:        $-33,318
+  5%-95% shuffled MDD band:   $-52,220  ... $-23,300
+  Real MDD better than 76.0% of random orderings
+  Verdict (need >50%): PASS
+
+--- Test 4: Bootstrap CI (10k resamples) ---
+  Real PnL:        $+208,450
+  Mean resampled:  $+209,140
+  95% CI PnL:      $+81,028  ... $+341,596
+  95% CI PF:       1.103  ...  1.503
+  P(losing PnL):   0.09%
+  P(PF <= 1.0):    0.09%
+  Verdict (need P(losing)<1% AND CI lower>0): PASS
+
+--- Test 2: Walk-Forward (rolling 12-month PF, locked config) ---
+  Windows tested:           55
+  Windows with PF > 1.0:    43 (78.2%)
+  Windows with PF > 1.1:    34 (61.8%)
+  Min window PF:            0.853
+  Max window PF:            1.608
+  Median window PF:         1.377
+  Worst window:             2023-07  PF=0.853  PnL=$-17,080
+  Verdict (need 75%+ windows PF>1): PASS
+
+
+### OHI/OLO B2 (MNQ)   (650 trades)
+====================================================================================================
+
+Baseline: trades=650  total_pnl=$+7,957  PF=1.373  MDD=$-845
+
+--- Test 3: Monte Carlo Order Shuffling (10k perms) ---
+  Real MDD:                   $-845
+  Median shuffled MDD:        $-1,270
+  5%-95% shuffled MDD band:   $-1,997  ... $-877
+  Real MDD better than 96.9% of random orderings
+  Verdict (need >50%): PASS
+
+--- Test 4: Bootstrap CI (10k resamples) ---
+  Real PnL:        $+7,957
+  Mean resampled:  $+7,925
+  95% CI PnL:      $+3,032  ... $+12,750
+  95% CI PF:       1.126  ...  1.675
+  P(losing PnL):   0.13%
+  P(PF <= 1.0):    0.13%
+  Verdict (need P(losing)<1% AND CI lower>0): PASS
+
+--- Test 2: Walk-Forward (rolling 12-month PF, locked config) ---
+  Windows tested:           55
+  Windows with PF > 1.0:    54 (98.2%)
+  Windows with PF > 1.1:    51 (92.7%)
+  Min window PF:            0.993
+  Max window PF:            1.954
+  Median window PF:         1.333
+  Worst window:             2024-06  PF=0.993  PnL=$-35
+  Verdict (need 75%+ windows PF>1): PASS

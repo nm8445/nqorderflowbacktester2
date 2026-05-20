@@ -1,0 +1,87 @@
+PIVOT-FILTERED ZONES — March–April 2026
+=======================================
+
+Configuration
+-------------
+Builder:           build_wick_zones.py
+Filter args:       --min-wick-delta 80 --min-run 2 --stale-days 14
+                   --displacement-bars 3 --displacement-atr 0.5
+Suffix:            _pivot
+Source index:      wick_delta_index_5min.parquet
+Outputs:           wick_zones_5min_pivot.parquet
+                   wick_zone_touches_5min_pivot.parquet
+
+Displacement rule
+-----------------
+After the formation run ends, look at the next 3 bars. The candidate zone is
+KEPT only if at least one of those 3 bars closes:
+  - support:    close >= zone_high + 0.5 * ATR(14, 5min)
+  - resistance: close <= zone_low  - 0.5 * ATR(14, 5min)
+Otherwise the candidate is dropped (price stalled in the zone).
+
+Effect on full 5-year set
+-------------------------
+Raw zones (no displacement filter):  18,520
+Pivot zones (with filter):           10,122
+Reduction:                           ~45%   (stalling clusters dropped)
+
+March–April 2026 results
+========================
+Total zones:           133  (down from 254 raw)
+  support:              66
+  resistance:           67
+
+Lifecycle breakdown:
+  rth_break:            77
+  eth_break:            46
+  staleness:             3
+  still_active:          7
+
+Touch / respect activity:
+  total touches:        1,095   (avg 8.2 per zone — UP from 6.8 in raw set)
+  total respects:         432   (40% of touches — same ratio as raw)
+  zones with >= 1 respect: 108 / 133  (81% — UP from 63% in raw set)
+
+Interpretation
+--------------
+The zones that survived the displacement filter have HIGHER activity per zone
+(more touches, more respects) — they're the ones price actually moved away
+from and came back to, exactly the "level memory" property we wanted. The raw
+filter was capturing a lot of stalling clusters where price was still hovering
+in the same range; the pivot filter removes those.
+
+Files saved
+-----------
+scripts/orderflowmarketcontext/
+  zones_mar_apr_2026.csv             254 raw zones (original)
+  zones_mar_apr_2026.md              raw zones markdown
+  zones_mar_apr_2026_events.csv      raw event log
+  zones_mar_apr_2026_pivot.csv       133 pivot-filtered zones   <-- NEW
+  zones_mar_apr_2026_pivot.md        pivot zones markdown        <-- NEW
+  zones_mar_apr_2026_events_pivot.csv  pivot event log
+
+Retune commands
+---------------
+Stricter (need a bigger move away from zone):
+  python scripts\cache_creation_scripts\build_wick_zones.py ^
+         --displacement-bars 3 --displacement-atr 1.0 --suffix _pivot_strict
+
+Looser (allow smaller moves):
+  python scripts\cache_creation_scripts\build_wick_zones.py ^
+         --displacement-bars 5 --displacement-atr 0.3 --suffix _pivot_loose
+
+Then enumerate the new suffix's zones for the same date window:
+  python "scripts\orderflowmarketcontext\zones_detail_mar_apr_2026.py" ^
+         --suffix _pivot_strict
+
+Higher --displacement-atr  -> fewer, more decisive zones.
+Higher --displacement-bars -> allows slower setups to qualify.
+
+Downstream caveat
+-----------------
+The existing backtest scripts:
+  scripts/orderflowmarketcontext/meanrevertingscripts/backtest_pullback_into_support.py
+  scripts/orderflowmarketcontext/trendingscripts/backtest_zone_break.py
+read from `wick_zones_5min.parquet` (the unfiltered set). To run them against
+the pivot zones, they'd need a `--zones-suffix` CLI flag added that defaults
+to "" but accepts e.g. "_pivot". Easy add when needed.

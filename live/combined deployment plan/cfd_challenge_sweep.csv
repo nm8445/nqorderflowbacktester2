@@ -1,0 +1,17 @@
+firm,mnq,p1_pass,both_pass,median_days_to_pass,p25_days,p75_days,median_days_all
+FTMO_2step,1,0.2682,0.2072,326,282,377,252
+FTMO_2step,2,0.7652,0.718,210,154,269,249
+FTMO_2step,3,0.8778,0.8248,143,99,199,150
+FTMO_2step,4,0.8816,0.806,99,66,145,98
+FTMO_2step,5,0.7638,0.6332,65,44,96,60
+FTMO_2step,6,0.7342,0.6048,52,34,76,46
+FTMO_2step,7,0.7056,0.5648,40,27,60,36
+FTMO_2step,8,0.6724,0.5236,33,21,49,28
+FundingPips_2step,1,0.4628,0.3514,310,260,359,252
+FundingPips_2step,2,0.8508,0.7936,184,131,246,212
+FundingPips_2step,3,0.9108,0.858,122,81,178,126
+FundingPips_2step,4,0.896,0.824,84,55,128,84
+FundingPips_2step,5,0.7864,0.6668,56,37,85,52
+FundingPips_2step,6,0.7696,0.638,44,28,65,41
+FundingPips_2step,7,0.7446,0.5992,34,22,52,31
+FundingPips_2step,8,0.7178,0.5502,28,18,42,25

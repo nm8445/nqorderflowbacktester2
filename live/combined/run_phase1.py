@@ -119,17 +119,9 @@ def wire_paper_engines(b5, b20):
     # subscribes to 5-min bars, runs Mech-B detection + confirmation logic,
     # and queues entries into B2Engine via set_pending_entry().
     b2 = B2Engine()
-    # Load prior-day gamma_sign from menthorq parquet at startup
-    try:
-        gp = pd.read_parquet("D:/trading_pythonbacktest_data/menthorq_levels_nq.parquet",
-                              columns=["date","qqq_gamma_sign"])
-        gp["date"] = pd.to_datetime(gp["date"]).dt.date
-        for d, sign in zip(gp["date"], gp["qqq_gamma_sign"]):
-            if pd.notna(sign):
-                b2.set_gamma_sign(d, int(sign))
-        print(f"  [B2] loaded gamma_sign for {len(gp)} days")
-    except Exception as e:
-        print(f"  [B2] gamma_sign load failed: {e}")
+    # NOTE: gamma_sign loading is handled by B2SignalEngine below
+    # (it reads the parquet AND hot-reloads it on each session boundary,
+    # so new gamma rows added by run_daily.py take effect without restart).
     def _on_b2(sig: B2Signal):
         d = "LONG" if sig.direction.name == "LONG" else "SHORT" if sig.direction.name == "SHORT" else "FLAT"
         extra = ""
@@ -252,10 +244,18 @@ def run_warm_only():
     return run_replay()
 
 
-def run_live():
-    """Connect to Databento live, warm-start, then stream."""
+def run_live(execute_to_nt8: bool = False):
+    """Connect to Databento live, warm-start, then stream.
+
+    execute_to_nt8: if True, also send tagged orders to NT8 multi-strat addon.
+        Requires NQMultiStratReceiver running on port 8081. Default False = paper only.
+    """
     print("=" * 70)
     print("PHASE 1 LIVE MODE — Databento NQ live ticks")
+    if execute_to_nt8:
+        print(">>> NT8 EXECUTE MODE ENABLED <<< — signals will route to NT8 addon")
+    else:
+        print("    (paper mode — signals logged to CSV, nothing sent to NT8)")
     print("Press Ctrl+C to stop")
     print("=" * 70)
 
@@ -288,7 +288,21 @@ def run_live():
     eng = paper_logs["engines"]
     print(f"  engine warmup: RV bars_seen={eng['RV'].n_bars_seen}  "
           f"B2={eng['B2'].n_bars_seen}  OD={eng['OD'].n_bars_seen}  "
-          f"FB={eng['FB'].n_bars_seen}\n")
+          f"FB={eng['FB'].n_bars_seen}")
+
+    # Clear any positions left over from warm-start. These are HISTORICAL
+    # artifacts — phantom positions that fired during warm-start (especially
+    # from force_close_current() emitting partial bars on the last day).
+    # Indicators stay warmed; only positions reset so live can fire cleanly.
+    reset_count = 0
+    for k, e in eng.items():
+        if hasattr(e, "position") and e.position is not None:
+            print(f"  [warmup-reset] {k} had phantom position from warm-start — clearing")
+            e.position = None
+            reset_count += 1
+    if reset_count == 0:
+        print(f"  no phantom positions to clear")
+    print()
 
     # Attach a LIVE-ONLY printer that fires for every bar after warm-start.
     # (The default printer suppresses after 5 bars per builder; warm-start
@@ -316,6 +330,20 @@ def run_live():
     # ===== Flip paper engines to LIVE mode (signals now log) =====
     paper_logs["set_live_mode"]()
     print(f"[run_phase1] PAPER engines now in LIVE mode — signals will print + log to CSV.\n")
+
+    # ===== Wire NT8 executor (if --execute) =====
+    nt8 = None
+    if execute_to_nt8:
+        try:
+            from live.combined.nt8_executor import NT8Executor
+            eng = paper_logs["engines"]
+            nt8 = NT8Executor()
+            nt8.wire_to_engines(eng["RV"], eng["B2"], eng["OD"], eng["FB"])
+            nt8.start_heartbeat()
+            print(f"[run_phase1] NT8 EXECUTE wired — orders + heartbeat active.\n")
+        except Exception as e:
+            print(f"[run_phase1] FAILED to wire NT8 executor: {e}")
+            print(f"  Continuing in paper-only mode.")
 
     # ===== Session backfill (T+30 and T+60) — fills pre-startup session gap =====
     # If you start after 18:00 ET (mid-session), Databento Historical has the
@@ -353,6 +381,16 @@ def run_live():
               f"entries={getattr(e, 'n_entries', 0):>3}  "
               f"exits={getattr(e, 'n_exits', 0):>3}")
     print(f"  Logs: {paper_logs['log_files']['RV'].parent}")
+    if nt8 is not None:
+        s = nt8.summary()
+        print(f"\nNT8 executor stats:")
+        print(f"  Entries sent: {s['entries_sent']}  Exits sent: {s['exits_sent']}")
+        print(f"  Heartbeats: {s['heartbeats']}  Errors: {s['errors']}")
+        print(f"  Open positions (still in NT8): {s['open_positions']}")
+        if s['open_tags']:
+            for t in s['open_tags']:
+                print(f"    - {t}")
+        nt8.stop()
     return 0
 
 
@@ -363,6 +401,10 @@ def main():
     g.add_argument("--replay", action="store_true", help="Feed pickle archive only")
     g.add_argument("--warm-only", action="store_true", help="Warm-start verification only")
     g.add_argument("--live", action="store_true", help="Connect to Databento live")
+    ap.add_argument("--execute", action="store_true",
+                     help="ALSO send tagged orders to NT8 multi-strat addon "
+                          "(requires NQMultiStratReceiver running on port 8081). "
+                          "Default: paper-only (CSV logging, no orders sent).")
     args = ap.parse_args()
 
     if args.replay:
@@ -370,7 +412,7 @@ def main():
     elif args.warm_only:
         return run_warm_only()
     elif args.live:
-        return run_live()
+        return run_live(execute_to_nt8=args.execute)
     return 0
 
 

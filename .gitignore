@@ -5,6 +5,15 @@
 data/
 output/
 
+# Results and logs (generated files)
+results/csv/*.csv
+results/html/*.html
+logs/*.log
+docs/*.md
+!docs/README.md
+!results/README.md
+!logs/README.md
+
 # Python
 __pycache__/
 *.py[cod]

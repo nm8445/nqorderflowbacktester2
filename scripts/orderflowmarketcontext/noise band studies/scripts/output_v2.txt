@@ -1,0 +1,91 @@
+loading NQ 1-min bars (UTC -> ET)...
+  range: 2020-12-01 00:01:00-05:00 -> 2025-12-01 00:00:00-05:00
+weekdays in range: 1293
+computing per-day open/close/anchor...
+  base rows: 1205
+scanning 5-min bars for band breaks...
+  200/1114  elapsed=0s  rows=200
+  400/1114  elapsed=0s  rows=400
+  600/1114  elapsed=0s  rows=600
+  800/1114  elapsed=0s  rows=800
+  1000/1114  elapsed=0s  rows=1000
+
+wrote C:\trading\nqorderflowbacktester\scripts\orderflowmarketcontext\noise band studies\scripts\overnight_band_per_day.parquet  (1114 rows)
+
+full sample after gamma merge: 1114 rows
+date range: 2021-04-16 -> 2025-11-26
+
+Entry: 5-min close that first breaks the static band
+Exit:  NQ close at 17:00 ET
+PnL is from break-time entry to close. Long for above_only,
+short for below_only. 'inside'/'both' = no clean trade signal.
+
+Significance markers: * p<0.05, ** p<0.01, *** p<0.001
+
+===============================================================================================
+LOOKBACK = 14 days
+===============================================================================================
+break-class counts: {'above_only': np.int64(406), 'below_only': np.int64(379), 'inside': np.int64(232), 'both': np.int64(97)}
+
+--- QQQ-derived gamma regime ---
+    above_only  ALL gamma  (long)                          n= 406  P(profit)=65.3%  mean_pnl= +37.41 pts  t=+5.02  p=0.0000  ***
+      above_only  + QQQ_pos-gamma                          n=  96  P(profit)=59.4%  mean_pnl= +27.16 pts  t=+2.36  p=0.0205    *
+      above_only  + QQQ_neg-gamma                          n= 306  P(profit)=66.7%  mean_pnl= +40.54 pts  t=+4.40  p=0.0000  ***
+    below_only  ALL gamma  (short)                         n= 379  P(profit)=54.4%  mean_pnl= +24.58 pts  t=+2.82  p=0.0051   **
+      below_only  + QQQ_pos-gamma                          n=  47  P(profit)=42.6%  mean_pnl= -18.68 pts  t=-1.25  p=0.2186     
+      below_only  + QQQ_neg-gamma                          n= 328  P(profit)=55.5%  mean_pnl= +30.49 pts  t=+3.11  p=0.0020   **
+    both        ALL gamma  (long)                          n=  97  P(profit)=45.4%  mean_pnl= -26.81 pts  t=-0.82  p=0.4127     
+      both        + QQQ_pos-gamma                          n=  10  P(profit)=30.0%  mean_pnl=-148.05 pts  t=-2.27  p=0.0493    *
+      both        + QQQ_neg-gamma                          n=  87  P(profit)=47.1%  mean_pnl= -12.88 pts  t=-0.36  p=0.7165     
+    inside      ALL gamma  (long)                          n=   0  insufficient
+      inside      + QQQ_pos-gamma                          n=   0  insufficient
+      inside      + QQQ_neg-gamma                          n=   0  insufficient
+
+--- NDX-derived gamma regime ---
+    above_only  ALL gamma  (long)                          n= 406  P(profit)=65.3%  mean_pnl= +37.41 pts  t=+5.02  p=0.0000  ***
+      above_only  + NDX_pos-gamma                          n= 180  P(profit)=57.8%  mean_pnl= +21.48 pts  t=+2.55  p=0.0116    *
+      above_only  + NDX_neg-gamma                          n= 223  P(profit)=70.9%  mean_pnl= +50.24 pts  t=+4.29  p=0.0000  ***
+    below_only  ALL gamma  (short)                         n= 379  P(profit)=54.4%  mean_pnl= +24.58 pts  t=+2.82  p=0.0051   **
+      below_only  + NDX_pos-gamma                          n=  74  P(profit)=48.6%  mean_pnl=  +9.35 pts  t=+0.54  p=0.5876     
+      below_only  + NDX_neg-gamma                          n= 304  P(profit)=55.6%  mean_pnl= +28.00 pts  t=+2.79  p=0.0056   **
+    both        ALL gamma  (long)                          n=  97  P(profit)=45.4%  mean_pnl= -26.81 pts  t=-0.82  p=0.4127     
+      both        + NDX_pos-gamma                          n=  26  P(profit)=23.1%  mean_pnl=-191.41 pts  t=-3.72  p=0.0010   **
+      both        + NDX_neg-gamma                          n=  71  P(profit)=53.5%  mean_pnl= +33.46 pts  t=+0.88  p=0.3823     
+    inside      ALL gamma  (long)                          n=   0  insufficient
+      inside      + NDX_pos-gamma                          n=   0  insufficient
+      inside      + NDX_neg-gamma                          n=   0  insufficient
+
+
+===============================================================================================
+LOOKBACK = 90 days
+===============================================================================================
+break-class counts: {'above_only': np.int64(386), 'below_only': np.int64(357), 'inside': np.int64(306), 'both': np.int64(65)}
+
+--- QQQ-derived gamma regime ---
+    above_only  ALL gamma  (long)                          n= 386  P(profit)=66.8%  mean_pnl= +39.95 pts  t=+5.17  p=0.0000  ***
+      above_only  + QQQ_pos-gamma                          n=  91  P(profit)=61.5%  mean_pnl= +27.38 pts  t=+2.23  p=0.0281    *
+      above_only  + QQQ_neg-gamma                          n= 291  P(profit)=68.4%  mean_pnl= +44.12 pts  t=+4.65  p=0.0000  ***
+    below_only  ALL gamma  (short)                         n= 357  P(profit)=52.1%  mean_pnl= +28.18 pts  t=+3.15  p=0.0018   **
+      below_only  + QQQ_pos-gamma                          n=  37  P(profit)=29.7%  mean_pnl=  -9.72 pts  t=-0.55  p=0.5835     
+      below_only  + QQQ_neg-gamma                          n= 317  P(profit)=54.3%  mean_pnl= +32.39 pts  t=+3.30  p=0.0011   **
+    both        ALL gamma  (long)                          n=  65  P(profit)=50.8%  mean_pnl=  +5.99 pts  t=+0.12  p=0.9033     
+      both        + QQQ_pos-gamma                          n=   6  P(profit)=33.3%  mean_pnl=-151.29 pts  t=-1.55  p=0.1809     
+      both        + QQQ_neg-gamma                          n=  59  P(profit)=52.5%  mean_pnl= +21.98 pts  t=+0.42  p=0.6792     
+    inside      ALL gamma  (long)                          n=   0  insufficient
+      inside      + QQQ_pos-gamma                          n=   0  insufficient
+      inside      + QQQ_neg-gamma                          n=   0  insufficient
+
+--- NDX-derived gamma regime ---
+    above_only  ALL gamma  (long)                          n= 386  P(profit)=66.8%  mean_pnl= +39.95 pts  t=+5.17  p=0.0000  ***
+      above_only  + NDX_pos-gamma                          n= 170  P(profit)=58.8%  mean_pnl= +15.92 pts  t=+1.83  p=0.0690     
+      above_only  + NDX_neg-gamma                          n= 213  P(profit)=73.2%  mean_pnl= +59.31 pts  t=+4.94  p=0.0000  ***
+    below_only  ALL gamma  (short)                         n= 357  P(profit)=52.1%  mean_pnl= +28.18 pts  t=+3.15  p=0.0018   **
+      below_only  + NDX_pos-gamma                          n=  60  P(profit)=48.3%  mean_pnl= +29.42 pts  t=+1.49  p=0.1428     
+      below_only  + NDX_neg-gamma                          n= 296  P(profit)=52.7%  mean_pnl= +27.66 pts  t=+2.76  p=0.0061   **
+    both        ALL gamma  (long)                          n=  65  P(profit)=50.8%  mean_pnl=  +5.99 pts  t=+0.12  p=0.9033     
+      both        + NDX_pos-gamma                          n=  11  P(profit)=9.1%  mean_pnl=-333.20 pts  t=-3.94  p=0.0028   **
+      both        + NDX_neg-gamma                          n=  54  P(profit)=59.3%  mean_pnl= +75.08 pts  t=+1.45  p=0.1538     
+    inside      ALL gamma  (long)                          n=   0  insufficient
+      inside      + NDX_pos-gamma                          n=   0  insufficient
+      inside      + NDX_neg-gamma                          n=   0  insufficient
+
