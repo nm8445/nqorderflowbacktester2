@@ -166,6 +166,15 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void StartServer()
         {
             if (isRunning) return;
+            // Defensive: a previous addon instance may have leaked a listener
+            // thread/prefix into NT's process. Tear down any leftover state
+            // before allocating a new HttpListener — otherwise Start() throws
+            // "prefix conflicts with an existing registration".
+            try { httpListener?.Stop(); } catch { }
+            try { httpListener?.Close(); } catch { }
+            httpListener = null;
+            try { listenerThread?.Join(500); } catch { }
+            listenerThread = null;
             try
             {
                 httpListener = new HttpListener();
@@ -206,7 +215,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void StopServer()
         {
             isRunning = false;
+            // Aggressive teardown: Stop() unblocks GetContext(), Close() releases
+            // the HTTP.sys prefix, Join() waits for the listener thread to die.
+            // Without all three the port stays leased after a recompile and the
+            // next StartServer() fails with "prefix conflicts with an existing
+            // registration".
             try { httpListener?.Stop(); } catch { }
+            try { httpListener?.Close(); } catch { }
+            httpListener = null;
+            try { listenerThread?.Join(2000); } catch { }
+            listenerThread = null;
             watchdogTimer?.Dispose();
             watchdogTimer = null;
             uiDispatcher?.BeginInvoke(new Action(() =>
