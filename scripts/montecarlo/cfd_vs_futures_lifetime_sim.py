@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]  # repo root (file is in scripts/montecarlo/)
 TRADES_CSV = ROOT / "live" / "combined deployment plan" / "combined_trades.csv"
 
 N_SIMS = 5_000

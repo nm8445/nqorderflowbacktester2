@@ -25,6 +25,7 @@ Usage:
 """
 from __future__ import annotations
 
+import queue
 import threading
 import time
 import uuid
@@ -40,6 +41,14 @@ from live.combined.config import ET_TZ
 NT8_URL_DEFAULT = "http://localhost:8081"   # different port from old addon
 HEARTBEAT_INTERVAL_SEC = 10
 HEARTBEAT_TIMEOUT_SEC = 30   # NT8's threshold for "stale" → flatten
+
+# Async POST architecture (added 2026-05-21):
+# Engine thread calls send_entry()/send_close_tag() which put_nowait on this
+# queue and return instantly. A dedicated poster thread drains and does the
+# actual blocking HTTP POST. This keeps the engine thread responsive to ticks
+# regardless of NT8 latency.
+SIGNAL_QUEUE_MAXSIZE = 10_000
+POST_TIMEOUT_SEC = 5.0
 
 
 @dataclass
@@ -67,19 +76,65 @@ class NT8Executor:
         self._open: dict[str, _OpenPosition] = {}    # tag -> position
         self._stop_event = threading.Event()
         self._hb_thread: Optional[threading.Thread] = None
+        # Async POST queue + dedicated poster thread (decouples engine from NT8 latency)
+        self._signal_queue: queue.Queue = queue.Queue(maxsize=SIGNAL_QUEUE_MAXSIZE)
+        self._poster_thread: Optional[threading.Thread] = None
         # Counters
         self.n_entries_sent = 0
         self.n_exits_sent = 0
         self.n_heartbeats = 0
         self.n_errors = 0
+        self.n_queue_full_drops = 0
         print(f"[nt8] executor initialized (url={self.url}, instance={self.instance_id}, "
               f"contract={self.contract}, account={self.account})")
+        # Start poster thread immediately so queue.put_nowait always has a drainer.
+        # If the user never calls start_heartbeat(), the poster thread still runs.
+        self._start_poster_thread()
 
-    # ---------- low-level HTTP ----------
-    def _post(self, endpoint: str, payload: dict, timeout: float = 5.0) -> bool:
-        """POST to NT8 and log latency."""
-        full_url = f"{self.url}{endpoint}"
+    # ---------- async POST infrastructure ----------
+    def _start_poster_thread(self) -> None:
+        """Spawn the daemon thread that drains _signal_queue and POSTs to NT8."""
+        if self._poster_thread is not None and self._poster_thread.is_alive():
+            return
+
+        def _poster_loop():
+            print(f"[nt8] poster thread started")
+            while not self._stop_event.is_set():
+                try:
+                    endpoint, payload = self._signal_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                self._post_sync(endpoint, payload)
+            # Drain remaining signals on shutdown so we don't lose exits
+            try:
+                while True:
+                    endpoint, payload = self._signal_queue.get_nowait()
+                    self._post_sync(endpoint, payload)
+            except queue.Empty:
+                pass
+            print(f"[nt8] poster thread stopped (qsize={self._signal_queue.qsize()})")
+
+        self._poster_thread = threading.Thread(
+            target=_poster_loop, daemon=True, name="nt8_poster")
+        self._poster_thread.start()
+
+    def _enqueue_post(self, endpoint: str, payload: dict) -> bool:
+        """Non-blocking enqueue. Returns False only if queue is full (engine
+        emitting signals faster than NT8 can accept — shouldn't ever happen
+        with a 10K queue and a healthy NT8). Microseconds latency."""
         payload["instance_id"] = self.instance_id
+        try:
+            self._signal_queue.put_nowait((endpoint, payload))
+            return True
+        except queue.Full:
+            self.n_queue_full_drops += 1
+            print(f"  [nt8] signal queue FULL — dropping {endpoint} for {payload.get('tag','?')}")
+            return False
+
+    # ---------- low-level HTTP (runs on poster thread only) ----------
+    def _post_sync(self, endpoint: str, payload: dict, timeout: float = POST_TIMEOUT_SEC) -> bool:
+        """POST to NT8 and log latency. Runs on poster thread — blocking is OK."""
+        full_url = f"{self.url}{endpoint}"
         try:
             t0 = time.perf_counter()
             r = self.session.post(full_url, json=payload, timeout=timeout)
@@ -135,7 +190,11 @@ class NT8Executor:
         if tp_price is not None:
             payload["target_price"] = f"{tp_price:.2f}"
             has_resting = True
-        if not self._post("/order", payload):
+        # Async enqueue — never blocks the engine thread. POST happens on
+        # poster thread; if it fails, the heartbeat watchdog or ResyncFromNT8
+        # corrects state. We optimistically track the tag locally so subsequent
+        # exit logic can find it.
+        if not self._enqueue_post("/order", payload):
             return None
         self._open[tag] = _OpenPosition(
             tag=tag, strat=strat, direction=direction.upper(),
@@ -146,14 +205,14 @@ class NT8Executor:
         return tag
 
     def send_close_tag(self, tag: str, reason: str = "") -> bool:
-        """Send FLATTEN-by-tag — closes only the matching position."""
+        """Send FLATTEN-by-tag — closes only the matching position. Async."""
         payload = {
             "action": "CLOSE_TAG",
             "tag": tag,
             "reason": reason,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-        if not self._post("/order", payload):
+        if not self._enqueue_post("/order", payload):
             return False
         self._open.pop(tag, None)
         self.n_exits_sent += 1
@@ -386,11 +445,14 @@ class NT8Executor:
         self._hb_thread.start()
 
     def stop(self) -> None:
-        """Stop heartbeat thread. Note: does NOT flatten positions — NT8's
-        failsafe will detect stale heartbeats and flatten on its own after
-        the timeout. For graceful shutdown that holds positions, call this
-        and don't restart."""
+        """Stop heartbeat + poster threads. Note: does NOT flatten positions —
+        NT8's failsafe will detect stale heartbeats and flatten on its own
+        after the timeout. For graceful shutdown that holds positions, call
+        this and don't restart."""
         self._stop_event.set()
+        # Wait briefly for poster to drain remaining queued exits
+        if self._poster_thread is not None:
+            self._poster_thread.join(timeout=10)
         if self._hb_thread is not None:
             self._hb_thread.join(timeout=5)
 
@@ -400,6 +462,8 @@ class NT8Executor:
             "exits_sent": self.n_exits_sent,
             "heartbeats": self.n_heartbeats,
             "errors": self.n_errors,
+            "queue_full_drops": self.n_queue_full_drops,
+            "signal_qsize": self._signal_queue.qsize(),
             "open_positions": len(self._open),
             "open_tags": list(self._open.keys()),
         }
