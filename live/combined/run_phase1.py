@@ -389,8 +389,11 @@ def run_live(execute_to_nt8: bool = False):
     feed.start()  # blocking
 
     print(f"\nLive session stats:")
-    print(f"  Total ticks received: {feed.n_ticks}")
-    print(f"  Trade ticks: {feed.n_trades}")
+    print(f"  Databento msgs received: {feed.n_msgs_received}")
+    print(f"  Trade ticks enqueued:    {feed.n_trades_enqueued}")
+    print(f"  Trade ticks processed:   {feed.n_trades_processed}")
+    print(f"  Local drops (q full):    {feed.n_dropped}")
+    print(f"  Callback errors:         {feed.n_callback_errors}")
     print(f"  5-min bars emitted live: {b5.n_bars_emitted}")
     print(f"  20-min bars emitted live: {b20.n_bars_emitted}")
     print(f"  5-min bars persisted to cache: {persistor.n_bars_written}")

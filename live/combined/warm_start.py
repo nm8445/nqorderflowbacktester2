@@ -61,18 +61,35 @@ def _file_date(p: Path) -> dt.date:
     return dt.date(int(parts[0]), int(parts[1]), int(parts[2]))
 
 
-def load_warm_start_bars(n_trading_days: int = WARM_START_TRADING_DAYS) -> list[dict]:
+def load_warm_start_bars(n_trading_days: int = WARM_START_TRADING_DAYS,
+                          end_date_exclusive: dt.date | None = None) -> list[dict]:
     """Load the last N trading days' worth of 5-min bars from the pickle archive.
+
+    Args:
+        n_trading_days: how many pickle files to load (in chronological order).
+        end_date_exclusive: if set, exclude pickles dated >= this date. This is
+            critical for replay_today.py — without it, the same-day pickle gets
+            loaded into warm-start, which corrupts engine state because the
+            same bars are then replayed via ticks (double-counted, bias state
+            flips earlier than reality).
 
     Returns list of bar dicts: {open_time, open, high, low, close, buy_vol, sell_vol}
     """
     all_files = _list_5min_pickle_files()
     if not all_files:
         return []
+    # Filter out pickles whose date >= end_date_exclusive (if set)
+    if end_date_exclusive is not None:
+        all_files = [f for f in all_files if _file_date(f) < end_date_exclusive]
+        if not all_files:
+            print(f"[warm_start] no pickle files before {end_date_exclusive} — "
+                  f"skipping warm-start")
+            return []
     # Take the last N files (sorted by date already)
     selected = all_files[-n_trading_days:]
     print(f"[warm_start] loading {len(selected)} pickle days: "
-          f"{_file_date(selected[0])} -> {_file_date(selected[-1])}")
+          f"{_file_date(selected[0])} -> {_file_date(selected[-1])}"
+          + (f"  (excluding >= {end_date_exclusive})" if end_date_exclusive else ""))
     rows = []
     for p in selected:
         with open(p, "rb") as fh:
@@ -82,16 +99,21 @@ def load_warm_start_bars(n_trading_days: int = WARM_START_TRADING_DAYS) -> list[
 
 
 def feed_warm_start_to_builders(multi: MultiBarBuilder,
-                                 n_trading_days: int = WARM_START_TRADING_DAYS) -> int:
+                                 n_trading_days: int = WARM_START_TRADING_DAYS,
+                                 end_date_exclusive: dt.date | None = None) -> int:
     """Feed historical 5-min bars to the bar builders as if they were live ticks
     (one synthetic tick per bar = bar close + total volume).
 
     This is a fast warm-start — full tick-level replay would be much slower and
     isn't necessary for indicator seeding.
 
+    `end_date_exclusive` is forwarded to load_warm_start_bars to exclude
+    pickles >= that date — critical for replay_today.py which would otherwise
+    double-process same-day bars (once via warm-start, once via tick replay).
+
     Returns number of bars fed.
     """
-    bars = load_warm_start_bars(n_trading_days)
+    bars = load_warm_start_bars(n_trading_days, end_date_exclusive=end_date_exclusive)
     if not bars:
         print("[warm_start] no historical bars found — skipping seed")
         return 0

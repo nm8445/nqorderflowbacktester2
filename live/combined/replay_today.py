@@ -152,8 +152,13 @@ def run_replay(date: dt.date) -> dict:
     # Warm-start engines from 15-day cache (mirrors run_phase1.py).
     # RV needs 80-bar kernel + 75-bar z_vol window seeded; OD needs ATR(14)
     # warmed; without this, engines fire fewer signals than live.
-    print(f"  [replay] warm-starting engines from {WARM_START_TRADING_DAYS}-day cache...")
-    n_warm = feed_warm_start_to_builders(multi, n_trading_days=WARM_START_TRADING_DAYS)
+    print(f"  [replay] warm-starting engines from {WARM_START_TRADING_DAYS}-day cache "
+          f"(excluding pickles >= {date} — replay rebuilds today's bars from ticks)...")
+    n_warm = feed_warm_start_to_builders(
+        multi,
+        n_trading_days=WARM_START_TRADING_DAYS,
+        end_date_exclusive=date,   # CRITICAL: avoid double-processing same-day bars
+    )
     # Clear any warm-start "trades" — those are historical, not today's
     for k in trades:
         trades[k].clear()
