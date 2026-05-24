@@ -200,6 +200,167 @@ If CFDs prove reliable, **scale up to FN Stellar 2-Step 200K @ 5 MNQ** ($1,099 f
 
 ## Key constraints to watch
 
+### FundedNext SL placement + risk rules (UPDATED 2026-05-23)
+
+FN enforces strict SL placement on **funded** accounts (challenge currently unclear, assume same):
+
+| Rule | Trigger | Consequence |
+|---|---|---|
+| **No SL Trade** | Trade opened without ever placing SL | Violation |
+| **Duration Exceeded** | SL not placed within 3 min of opening | Violation |
+| **SL Gap** | SL removed for >1 min after the first 3 min | Violation |
+| **High Risk (per-trade)** | SL distance × position > 3% of account | Violation → demotion to 1% sizing |
+| **At-a-Time High Risk (cumulative)** | Sum of SL-risk across ALL open positions > 3% | Violation → demotion to 1% sizing |
+| **Duration Exceeded & High Risk** | SL placed late AND too far | Compound violation |
+
+**Critical interpretation**: cumulative cap = 3% means **only one full-sized trade open at a time**, OR multiple concurrent positions whose combined SL-risk sums to ≤3%. This breaks the naive "run all 4 strategies independently" assumption.
+
+### Conversion: NQ → NDX100 (FundedNext symbol)
+
+Prices differ (basis varies day-to-day) but move 1:1 in points. The $/pt mapping:
+
+| NQ-side | NDX100 lots | $/pt | Per-strategy use |
+|---|---|---|---|
+| 1 MNQ | 0.20 | $2 | conservative funded |
+| 2 MNQ | 0.40 | $4 | 100K funded sweet spot |
+| 4 MNQ | 0.80 | $8 | 200K funded sweet spot |
+| 5 MNQ | 1.00 | $10 | 200K challenge |
+| 6 MNQ | 1.20 | $12 | 300K funded sweet spot |
+| 8 MNQ | 1.60 | $16 | 300K challenge |
+
+Formula: `NDX100 lots = MNQ × 0.20`
+
+### Max SL distance per setup (3% per-trade cap)
+
+`SL_pts_max = (account × 0.03) / ($/pt)`
+
+| Account | Lots | $/pt | Max SL | Recommended SL (95% of cap) | B2 worst (550 pts) safe? |
+|---|---|---|---|---|---|
+| 100K | 0.40 | $4 | 750 pts | **700 pts** | ✓ |
+| 200K | 0.80 | $8 | 750 pts | **700 pts** | ✓ |
+| 200K | 1.00 | $10 | 600 pts | **570 pts** | TIGHT — B2 can hit SL |
+| 300K | 1.20 | $12 | 750 pts | **700 pts** | ✓ |
+| 300K | 1.40 | $14 | 643 pts | **610 pts** | tight |
+| 300K | 1.60 | $16 | 562 pts | **530 pts** | NO — B2 worse than this; drop B2 or downsize |
+
+Pattern: 700 pts of SL works at all "sweet spot" sizes, and lets candle-close exits trigger first. The 4 strategies' worst peak MAEs:
+- B2 worst: 550 pts (1 NQ basis)
+- OD mart 2c worst: 543 pts
+- RV worst: ~150 pts
+- Fabio worst: ~100 pts
+
+A 700-pt SL is wider than all of them with margin.
+
+### Cumulative-cap architectural impact
+
+`mt5_executor.py` (still TODO) needs:
+1. **Atomic SL placement** — every `mt5.order_send()` includes `sl=`, no follow-up modify
+2. **Pre-trade cumulative check** — before opening trade N, sum existing SL-risk + new trade's SL-risk; reject if >3% of account
+3. **Strategy serialization or splitting** — only one strategy holds the full 3% at a time, OR run different strategies on different FN accounts so each gets its own 3% budget
+
+Honest take: the 4-strat-on-one-account MC numbers I quoted assume free concurrency. With cumulative 3% enforced, either:
+- **One strategy per FN account**: 4 accounts to run the full stack (4× the fees)
+- **Serialize**: lose signals when another strategy is open (~30-40% signal loss based on overlap rates)
+- **Downsize**: each strategy at 0.75% so 4 concurrent = 3% total (cuts EV ~75% per strategy)
+
+The realistic FN play is probably **2-3 strategies per account, sized so 2 concurrent fit under 3%** — needs a fresh MC run.
+
+### CHOSEN DEPLOYMENT (2026-05-23): asymmetric per-strategy budget
+
+OD runs solo (closes by 8 AM, no overlap with B2/RV/Fabio per user). B2/RV/Fabio share the 3% cap (each 1%) since they can be concurrent.
+
+| Strategy | Budget | Recommended SL | Notes |
+|---|---|---|---|
+| OD | 3% | 600 pts | full slot, only one open |
+| B2 | 1% | 600 pts | overnight, can overlap morning sessions |
+| RV | 1% | 200 pts | intraday |
+| Fabio | 1% | 150 pts | morning ORB |
+
+**Sizing tables** (NDX100 lots = (budget$ / SL_pts) / $10):
+
+#### 100K — $1K per 1% slot, $3K for OD
+
+| Strategy | Lots | ≈MNQ |
+|---|---|---|
+| OD | 0.50 | 2.5 |
+| B2 | 0.17 | 0.83 |
+| RV | 0.50 | 2.5 |
+| Fabio | 0.67 | 3.33 |
+
+#### 200K — $2K per 1% slot, $6K for OD
+
+| Strategy | Lots | ≈MNQ |
+|---|---|---|
+| OD | 1.00 | 5 |
+| B2 | 0.33 | 1.67 |
+| RV | 1.00 | 5 |
+| Fabio | 1.33 | 6.67 |
+
+#### 300K — $3K per 1% slot, $9K for OD
+
+| Strategy | Lots | ≈MNQ |
+|---|---|---|
+| OD | 1.50 | 7.5 |
+| B2 | 0.50 | 2.5 |
+| RV | 1.50 | 7.5 |
+| Fabio | 2.00 | 10 |
+
+**Assumption to verify**: OD really doesn't overlap with B2 (B2 is overnight; if B2 still open at 4-8 AM when OD trades, OD must drop to 2% to leave 1% for B2). Check actual B2 close time vs OD open time in `live/combined/b2_engine.py` and `live/combined/od_engine.py`.
+
+**Strategy schedule (verified 2026-05-23 from engine files)**:
+- OD: 19:00 ET entry → 08:00 ET force-close (overnight, solo session)
+- B2: 9-14 ET entries → 16:00 ET force-close (day session)
+- RV: 09:00-13:00 / 14:00-14:45 ET → 14:45 force-close
+- Fabio: morning ORB
+- OD runs in a different session from day strats → no overlap → can keep its full 3% slot
+
+### Verified FN pricing (web-checked 2026-05-23)
+
+| Account | Stellar 2-Step fee | Availability |
+|---|---|---|
+| 100K | **$549.99** | Direct purchase |
+| 200K | **$1,099.99** | Direct purchase, **MAX standalone** |
+| 300K | N/A | **Only via scaling from 200K**, not purchasable |
+
+**Profit split**: "up to 95%" per FN. Default likely 80-90%; 95% requires add-on or scaling milestones. MCs below use **90% baseline** — multiply income by 1.056 for 95% scenario, by 0.889 for 80%.
+
+**Refresh fee**: not on FN public site; assumed $99 ballpark. Impact is tiny (~$115/yr).
+
+### MC results — CHALLENGE (3% per-trade cap, asymmetric sizing)
+
+Output: `live/combined deployment plan/fundednext_challenge_asymmetric.csv`
+
+| Account | Pass rate | Median days total | p25 | p75 | $/funded acct | Demote % |
+|---|---|---|---|---|---|---|
+| 100K | **95.66%** | **111** | 76 | 157 | $575 | 0% |
+| 200K | **95.64%** | **111** | 76 | 157 | $1,150 | 0% |
+| 300K (scaled) | 95.90% | 109 | 75 | 157 | n/a | 0% |
+
+P1 median: 63 days. P2 median: 36 days. 0% demotion risk at this sizing.
+
+### MC results — FUNDED with payout detail (3% per-trade cap, 90% split)
+
+Output: `live/combined deployment plan/fundednext_funded_payout_detail.csv`
+
+| Account | Avg payout | Median payout | p25 / p75 | p95 | Avg gap days | Payouts/yr | NET $/mo | NET $/yr |
+|---|---|---|---|---|---|---|---|---|
+| **100K** | **$547** | $397 | $169 / $738 | $1,525 | 4.44 | 51.3 | **$2,329** | **$27,947** |
+| **200K** | **$1,095** | $794 | $339 / $1,478 | $3,049 | 4.44 | 51.3 | **$4,674** | **$56,087** |
+| **300K** (scaled) | $1,643 | $1,196 | $512 / $2,214 | $4,602 | 4.44 | 51.4 | $7,026 | $84,316 |
+
+At 95% split (max): 100K = $29,500/yr, 200K = $59,200/yr, 300K = $89,000/yr.
+
+Bust rate 33-34% across all sizes (from total-DD only; demote% = 0%). Median 1 day between payouts because payouts hit any time balance > start; 4.44 day avg includes gaps from sub-start days.
+
+**Counterintuitive finding**: asymmetric sizing **BEATS flat-MNQ sweet spot by ~24% income** at all account sizes. Reason: Fabio (tight 150 pt SL) and RV (tight 200 pt SL) get UPsized at 1% budget vs flat 4-strat MNQ; only B2 takes a real hit (it's the only strategy with wide-MAE profile). OD stays roughly the same since it gets the full 3% slot.
+
+**Bust rate triples** (12% → 34%) because daily PnL std rises 22% from Fabio/RV upsizing, hitting 10% static DD more often. But:
+- Demotion risk (per-trade rule trip) = 0% at all sizes — well within cap
+- Bust = $99 refresh + ~38 days lost trading, benign in EV terms
+- Payouts/yr unchanged at 51.3 (payouts are daily)
+
+**This deployment is preferred over both serialize and one-account-per-strategy** for fee efficiency and per-strategy EV.
+
 ### Per-trade rule on FundingPips funded
 
 FundingPips funded account has **2% per-trade rule on $50K+**. On $100K funded that's a **$2,000 per-trade cap**.

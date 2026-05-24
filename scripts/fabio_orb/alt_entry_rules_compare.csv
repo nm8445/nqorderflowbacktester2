@@ -1,0 +1,6 @@
+rule,n_trades,wr%,net_$,avg_$,PF,MaxDD_$,TP%,SL%,EOD%,avg_entry_hhmm
+"BASELINE (4 consec, delta on entry)",709,53.2,151265.0,215.8,1.33,-20850.0,0.3,26.9,72.8,1055.0
+"PROPOSED v3 (delta-break + 3 after, loose)",828,46.9,75475.0,92.4,1.13,-45080.0,1.0,37.0,62.1,1036.0
+"PROPOSED v4 (delta-break + 4 after, loose)",791,47.4,94770.0,121.3,1.18,-42650.0,1.3,33.0,65.7,1051.0
+PROPOSED v3 (delta on fresh break + 3 after),578,47.1,21810.0,38.1,1.05,-42815.0,1.2,37.4,61.4,1038.0
+PROPOSED v4 (delta on fresh break + 4 after),544,48.2,25935.0,48.1,1.07,-40310.0,1.5,33.6,64.9,1051.0
