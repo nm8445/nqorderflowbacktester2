@@ -374,10 +374,32 @@ def run_live(execute_to_nt8: bool = False,
     if execute_to_mt5:
         try:
             from live.combined.mt5_executor import MT5Executor
-            mt5x = MT5Executor(dry_run=mt5_dry_run, firm_label="FN")
+            # 5%ers 100K High Stakes config — scale 1.5 from the asymmetric MC.
+            # Targets: 86% pass rate, median 68 days, 0% demotion risk
+            # (5.78% daily-unrealized bust, 8.04% DD bust).
+            # Source: live/combined deployment plan/the5ers_100k_challenge.csv
+            # OD runs solo overnight (3% slot). B2/RV/FB share the day-session
+            # 3% cap; SL distances were chosen to clear each strategy's worst MAE.
+            mt5x = MT5Executor(
+                dry_run=mt5_dry_run,
+                firm_label="5pct-100K",
+                lots_per_strat={
+                    "OD": 0.75,   # 3.75 MNQ equivalent
+                    "B2": 0.25,   # 1.25 MNQ equivalent
+                    "RV": 0.75,   # 3.75 MNQ equivalent
+                    "FB": 1.00,   # 5.00 MNQ equivalent
+                },
+                sl_pts_per_strat={
+                    "OD": 600.0,  # worst MAE 543 pt + 57 margin
+                    "B2": 600.0,  # worst MAE 550 pt + 50 margin
+                    "RV": 200.0,  # worst MAE 150 pt + 50 margin
+                    "FB": 150.0,  # worst MAE 100 pt + 50 margin
+                },
+            )
             mt5_cbs = mt5x.get_callbacks(eng["RV"], eng["B2"], eng["OD"], eng["FB"])
             mt5x.start_heartbeat()
-            print(f"[run_phase1] MT5 EXECUTE wired (dry_run={mt5_dry_run}).\n")
+            print(f"[run_phase1] MT5 EXECUTE wired (dry_run={mt5_dry_run}) "
+                  f"@ 5%ers 100K sizing (scale 1.5).\n")
         except Exception as e:
             print(f"[run_phase1] FAILED to wire MT5 executor: {e}")
             print(f"  Continuing without MT5.")
