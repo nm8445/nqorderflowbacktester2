@@ -38,7 +38,7 @@ LOGIN = int(os.getenv("MT5_LOGIN", "0"))
 PASSWORD = os.getenv("MT5_PASSWORD", "")
 SERVER = os.getenv("MT5_SERVER", "")
 TERMINAL_PATH = os.getenv("MT5_TERMINAL_PATH", "")
-SYMBOL = "NDX100"
+SYMBOL = os.getenv("MT5_SYMBOL", "NDX100")   # broker-specific (NAS100/US100/USTECH100)
 LOT_SIZE = 0.01
 TAG_PREFIX = "TEST"
 
@@ -84,6 +84,16 @@ def main():
         mt5.shutdown(); return
     print(f"OK   tick: bid={tick.bid:.2f} ask={tick.ask:.2f} spread={tick.ask-tick.bid:.2f}")
 
+    # Pick a supported filling mode (brokers vary: FOK, IOC, or RETURN).
+    fm_bits = info.filling_mode
+    if fm_bits & 2:
+        filling = mt5.ORDER_FILLING_IOC; fname = "IOC"
+    elif fm_bits & 1:
+        filling = mt5.ORDER_FILLING_FOK; fname = "FOK"
+    else:
+        filling = mt5.ORDER_FILLING_RETURN; fname = "RETURN"
+    print(f"OK   filling mode chosen: {fname} (broker bitmask={fm_bits})")
+
     # Build entry order
     tag = f"{TAG_PREFIX}_{time.strftime('%Y%m%d_%H%M%S')}"
     entry_req = {
@@ -96,7 +106,7 @@ def main():
         "magic": 99999,             # identifier for this script
         "comment": tag,
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_FOK,
+        "type_filling": filling,
     }
 
     hr(f"Sending BUY {LOT_SIZE} {SYMBOL} @ market (tag={tag})")
@@ -153,7 +163,7 @@ def main():
         "magic": 99999,
         "comment": f"{tag}_CLOSE",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_FOK,
+        "type_filling": filling,
     }
     t0 = time.perf_counter()
     res2 = mt5.order_send(close_req)

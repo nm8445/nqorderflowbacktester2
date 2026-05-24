@@ -91,7 +91,7 @@ class MT5Executor:
                  login: Optional[int] = None,
                  password: Optional[str] = None,
                  server: Optional[str] = None,
-                 contract: str = "NDX100",
+                 contract: Optional[str] = None,
                  lots_per_strat: Optional[dict] = None,
                  sl_pts_per_strat: Optional[dict] = None,
                  dry_run: bool = False,
@@ -101,7 +101,8 @@ class MT5Executor:
         self.login = int(login if login is not None else os.getenv("MT5_LOGIN", "0"))
         self.password = password or os.getenv("MT5_PASSWORD", "")
         self.server = server or os.getenv("MT5_SERVER", "")
-        self.contract = contract
+        # Symbol: explicit arg > env var > default. TradeMax/other brokers vary.
+        self.contract = contract or os.getenv("MT5_SYMBOL", "NDX100")
         self.lots = dict(lots_per_strat) if lots_per_strat else dict(DEFAULT_LOTS)
         self.sl_pts = dict(sl_pts_per_strat) if sl_pts_per_strat else dict(DEFAULT_SL_PTS)
         self.dry_run = dry_run
@@ -113,6 +114,8 @@ class MT5Executor:
         self._stop_event = threading.Event()
         self._hb_thread: Optional[threading.Thread] = None
         self._initialized = False
+        # Broker-specific filling mode (detected during init from symbol_info)
+        self._filling_mode = None
 
         # Counters
         self.n_entries_sent = 0
@@ -162,6 +165,19 @@ class MT5Executor:
             info = mt5.symbol_info(self.contract)
             if not info or not info.visible:
                 mt5.symbol_select(self.contract, True)
+                info = mt5.symbol_info(self.contract)
+            # Detect supported filling mode (brokers vary: FOK, IOC, RETURN)
+            fm = info.filling_mode if info else 0
+            if fm & 2:
+                self._filling_mode = mt5.ORDER_FILLING_IOC
+                fname = "IOC"
+            elif fm & 1:
+                self._filling_mode = mt5.ORDER_FILLING_FOK
+                fname = "FOK"
+            else:
+                self._filling_mode = mt5.ORDER_FILLING_RETURN
+                fname = "RETURN"
+            print(f"[mt5][{self.firm_label}] filling mode: {fname} (broker bitmask={fm})")
             # Adopt any pre-existing positions matching our magics
             self._resync_from_mt5()
             self._initialized = True
@@ -264,7 +280,7 @@ class MT5Executor:
                 "magic":   MAGIC.get(strat, 30000),
                 "comment": customTag[:31],   # MT5 truncates comments to 31 chars
                 "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_FOK,
+                "type_filling": self._filling_mode or mt5.ORDER_FILLING_RETURN,
             }
             t0 = time.perf_counter()
             res = mt5.order_send(req)
@@ -342,7 +358,7 @@ class MT5Executor:
                 "magic":   MAGIC.get(strat, 30000),
                 "comment": (pos.customTag + "_X")[:31],
                 "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_FOK,
+                "type_filling": self._filling_mode or mt5.ORDER_FILLING_RETURN,
             }
             t0 = time.perf_counter()
             res = mt5.order_send(req)
