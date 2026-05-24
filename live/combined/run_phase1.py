@@ -245,18 +245,30 @@ def run_warm_only():
     return run_replay()
 
 
-def run_live(execute_to_nt8: bool = False):
+def run_live(execute_to_nt8: bool = False,
+             execute_to_mt5: bool = False,
+             mt5_dry_run: bool = False):
     """Connect to Databento live, warm-start, then stream.
 
     execute_to_nt8: if True, also send tagged orders to NT8 multi-strat addon.
         Requires NQMultiStratReceiver running on port 8081. Default False = paper only.
+
+    execute_to_mt5: if True, ALSO send orders to MT5 (alongside NT8 if both enabled).
+        Default tiny lots (0.01) for safe verification. Requires MT5 desktop app
+        running and authorized on the configured broker server.
+
+    mt5_dry_run: if True, MT5 executor logs intended orders but DOES NOT send.
+        Use for routing-validation before risking real fills.
     """
     print("=" * 70)
     print("PHASE 1 LIVE MODE — Databento NQ live ticks")
     if execute_to_nt8:
         print(">>> NT8 EXECUTE MODE ENABLED <<< — signals will route to NT8 addon")
-    else:
-        print("    (paper mode — signals logged to CSV, nothing sent to NT8)")
+    if execute_to_mt5:
+        mode = "DRY-RUN (log only)" if mt5_dry_run else "LIVE (real orders)"
+        print(f">>> MT5 EXECUTE MODE ENABLED ({mode}) <<< — signals will also route to MT5")
+    if not (execute_to_nt8 or execute_to_mt5):
+        print("    (paper mode — signals logged to CSV, nothing sent to brokers)")
     print("Press Ctrl+C to stop")
     print("=" * 70)
 
@@ -356,13 +368,29 @@ def run_live(execute_to_nt8: bool = False):
             print(f"[run_phase1] FAILED to wire NT8 executor: {e}")
             print(f"  Continuing in paper-only mode.")
 
-    # Coordinator subscribes to each engine. Approved signals go to paper
-    # logger + NT8 callback (if --execute). Blocked signals are dropped
-    # (with rollback of the engine's phantom position).
+    # ===== Wire MT5 executor (if --execute-mt5) =====
+    mt5x = None
+    mt5_cbs = {"RV": None, "B2": None, "OD": None, "FB": None}
+    if execute_to_mt5:
+        try:
+            from live.combined.mt5_executor import MT5Executor
+            mt5x = MT5Executor(dry_run=mt5_dry_run, firm_label="FN")
+            mt5_cbs = mt5x.get_callbacks(eng["RV"], eng["B2"], eng["OD"], eng["FB"])
+            mt5x.start_heartbeat()
+            print(f"[run_phase1] MT5 EXECUTE wired (dry_run={mt5_dry_run}).\n")
+        except Exception as e:
+            print(f"[run_phase1] FAILED to wire MT5 executor: {e}")
+            print(f"  Continuing without MT5.")
+
+    # Coordinator subscribes to each engine. Approved signals fan out to
+    # paper logger + NT8 callback (if --execute) + MT5 callback (if --execute-mt5).
+    # Blocked signals are dropped (with rollback of the engine's phantom position).
     for strat_name in ("RV", "B2", "OD", "FB"):
         downstream = [paper_cbs[strat_name]]
         if nt8_cbs[strat_name] is not None:
             downstream.append(nt8_cbs[strat_name])
+        if mt5_cbs[strat_name] is not None:
+            downstream.append(mt5_cbs[strat_name])
         coord.register(strat_name, eng[strat_name], *downstream)
     print(f"[run_phase1] COORDINATOR wired — no-hedge rule active across 4 strats.\n")
 
@@ -432,6 +460,16 @@ def run_live(execute_to_nt8: bool = False):
             for t in s['open_tags']:
                 print(f"    - {t}")
         nt8.stop()
+    if mt5x is not None:
+        s = mt5x.summary()
+        print(f"\nMT5 executor stats ({s['firm']}, dry_run={s['dry_run']}):")
+        print(f"  Entries sent: {s['entries_sent']}  Exits sent: {s['exits_sent']}")
+        print(f"  Heartbeats: {s['heartbeats']}  Errors: {s['errors']}")
+        print(f"  Dry-run logs: {s['dry_run_logs']}")
+        print(f"  Open positions (tracked on MT5): {s['open_positions']}")
+        if s['open_strats']:
+            print(f"  Open strats: {s['open_strats']}")
+        mt5x.stop()
     return 0
 
 
@@ -446,6 +484,13 @@ def main():
                      help="ALSO send tagged orders to NT8 multi-strat addon "
                           "(requires NQMultiStratReceiver running on port 8081). "
                           "Default: paper-only (CSV logging, no orders sent).")
+    ap.add_argument("--execute-mt5", action="store_true",
+                     help="ALSO send orders to MT5 (FundedNext by default). "
+                          "Defaults to tiny lots (0.01) for safe verification. "
+                          "Requires MT5 desktop running + authorized.")
+    ap.add_argument("--mt5-dry-run", action="store_true",
+                     help="With --execute-mt5: log intended MT5 orders but DO NOT send. "
+                          "Use to validate routing before risking real fills.")
     args = ap.parse_args()
 
     if args.replay:
@@ -453,7 +498,9 @@ def main():
     elif args.warm_only:
         return run_warm_only()
     elif args.live:
-        return run_live(execute_to_nt8=args.execute)
+        return run_live(execute_to_nt8=args.execute,
+                        execute_to_mt5=args.execute_mt5,
+                        mt5_dry_run=args.mt5_dry_run)
     return 0
 
 
