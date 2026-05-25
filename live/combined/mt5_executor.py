@@ -291,7 +291,18 @@ class MT5Executor:
                 print(f"  [mt5][{self.firm_label}][{strat}-ENTRY] FAIL retcode={rc} {msg}")
                 self.n_errors += 1
                 return False
-            ticket = self._find_position_ticket(customTag, MAGIC.get(strat, 0))
+            # Capture position ticket reliably. Primary: deal_id -> position_id
+            # via history_deals_get. Fallback: positions_get with retry.
+            ticket = self._capture_position_ticket(res.deal, MAGIC.get(strat, 0))
+            if not ticket:
+                # Could not identify the position. Log + adopt with ticket=0 so
+                # the next iteration of _close_strategy will refuse to send a
+                # position=0 close (which MT5 interprets as a new opposing order).
+                # User must manually flatten in MT5 if this fires.
+                print(f"  [mt5][{self.firm_label}][{strat}-ENTRY] WARN entry FILLED but "
+                      f"could not capture position ticket. Will refuse to auto-close. "
+                      f"Manual flatten required if needed.")
+                self.n_errors += 1
             self._open[strat] = _OpenMT5Position(
                 strat=strat, customTag=customTag, direction=direction,
                 volume=lots, entry_price=res.price,
@@ -309,14 +320,41 @@ class MT5Executor:
             return False
 
     def _find_position_ticket(self, tag: str, magic: int) -> int:
+        """Legacy lookup by tag+magic. Kept for resync. Prefer _capture_position_ticket
+        after a fresh entry (uses deal_id, more reliable)."""
         try:
-            time.sleep(0.2)  # let broker register
+            time.sleep(0.2)
             positions = mt5.positions_get(symbol=self.contract) or []
             for p in positions:
                 if p.magic == magic and (p.comment == tag[:31] or p.comment == tag):
                     return p.ticket
         except Exception:
             pass
+        return 0
+
+    def _capture_position_ticket(self, deal_id: int, magic: int) -> int:
+        """Most reliable ticket capture: use the deal_id from order_send to
+        look up the resulting position. For market entries, deal.position_id
+        is the position ticket. Falls back to positions_get with retry."""
+        # Method 1: history_deals_get(ticket=deal_id) -> deal.position_id
+        try:
+            time.sleep(0.1)
+            deals = mt5.history_deals_get(ticket=deal_id) or []
+            for d in deals:
+                if d.ticket == deal_id and d.position_id:
+                    return int(d.position_id)
+        except Exception as e:
+            print(f"  [mt5] history_deals_get failed: {e}")
+        # Method 2: poll positions_get with retry (slower, less precise)
+        for attempt in range(4):   # 0.3, 0.6, 0.9, 1.2 sec total wait
+            try:
+                time.sleep(0.3)
+                positions = mt5.positions_get(symbol=self.contract) or []
+                for p in positions:
+                    if p.magic == magic:
+                        return int(p.ticket)
+            except Exception:
+                pass
         return 0
 
     def _close_strategy(self, strat: str, reason: str = "") -> bool:
@@ -347,12 +385,24 @@ class MT5Executor:
                 return False
             # Refresh ticket via re-search (in case we never captured it)
             ticket = pos.ticket or self._find_position_ticket(pos.customTag, MAGIC.get(strat, 0))
+            # SAFETY GUARD: NEVER send a close order with ticket=0. MT5 interprets
+            # position=0 as "this is a new market order" and opens an OPPOSING
+            # position rather than closing. This caused a real bug in production
+            # — see commit history. If we can't identify the ticket, abort and
+            # warn loudly. Manual flatten required.
+            if not ticket:
+                print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] ABORT: no ticket to close. "
+                      f"Position may already be closed by broker, or never tracked properly. "
+                      f"**Check MT5 manually and flatten if needed.** tag={pos.customTag}")
+                self.n_errors += 1
+                # Do NOT re-add to tracking — we've given up on it
+                return False
             req = {
                 "action":  mt5.TRADE_ACTION_DEAL,
                 "symbol":  self.contract,
                 "volume":  pos.volume,
                 "type":    mt5.ORDER_TYPE_SELL if pos.direction == "LONG" else mt5.ORDER_TYPE_BUY,
-                "position": ticket,        # CRITICAL: close, not new opposing
+                "position": ticket,        # CRITICAL: close, not new opposing. Never 0.
                 "price":   tick.bid if pos.direction == "LONG" else tick.ask,
                 "deviation": 20,
                 "magic":   MAGIC.get(strat, 30000),
