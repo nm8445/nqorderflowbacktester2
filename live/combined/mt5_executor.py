@@ -425,7 +425,15 @@ class MT5Executor:
         def on_od(sig):
             d = "LONG" if sig.direction.name == "LONG" else "FLAT"
             if sig.event == "ENTRY" and od.position is not None:
-                # OD: no SL/TP from strategy — use disaster SL only
+                # OD: no SL/TP from strategy — use disaster SL only.
+                # NOTE: sig.qty (1 or 2 for martingale) is INTENTIONALLY ignored.
+                # On 5%ers/FN prop accounts the 2c martingale doubles risk to
+                # ~9% of account on a worst-case SL hit, which blows the 5%
+                # daily-unrealized cap. NT8 honors martingale; MT5 doesn't.
+                # If qty=2 fires, log it for visibility but still trade base lots.
+                if sig.qty == 2:
+                    print(f"  [mt5][{self.firm_label}][OD-MARTINGALE] engine signals 2c, "
+                          f"sending base lots only ({self.lots.get('OD', 0.01)}) for prop firm safety")
                 self._send_entry("OD", d, sl_price=None, tp_price=None,
                                   entry_ts=sig.timestamp, signal_entry_price=sig.price)
             elif sig.event == "EXIT":
