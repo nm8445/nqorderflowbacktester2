@@ -45,34 +45,34 @@ class StrategyParams:
     forced_hour: int = 8
     forced_minute: int = 0
 
-    # Yellow (stop)
+    # Yellow (stop) — DEFAULTS UPDATED 2026-05-25 to new locked production config
     yellow_atr_len: int = 14
-    yellow_atr_mult: float = 1.42
-    yellow_drift: float = 1.0
-    yellow_mode: str = "drift_floor"  # drift_floor | pure_ratchet | raw_atr | bearish_drift
+    yellow_atr_mult: float = 1.40           # was 1.42; new locked = 1.40
+    yellow_drift: float = 0.0               # was 1.0; locked uses pure_ratchet
+    yellow_mode: str = "pure_ratchet"       # was drift_floor; locked = pure_ratchet
     # bearish_drift: like pure_ratchet but yellow can drift DOWN by bearish_drift_pts
     # on bars where close < open. Cannot drop below raw_atr.
     bearish_drift_pts: float = 0.0
 
-    # Green (target)
-    green_atr_len: int = 13
-    green_atr_mult: float = 2.60
-    green_base: float = 107.6
-    green_decay: float = 1.31
+    # Green (target) — UPDATED to new locked production config
+    green_atr_len: int = 14                 # was 13; locked = 14
+    green_atr_mult: float = 1.50            # was 2.60; new locked = 1.50
+    green_base: float = 160.0               # was 107.6; new locked = 160.0
+    green_decay: float = 2.00               # was 1.31; new locked = 2.00
 
     # Red baseline
     red_intercept: float = 0.0
     red_drift: float = 0.45
 
     # Breakeven rule
-    use_be: bool = True
+    use_be: bool = False                    # was True; locked = OFF
 
     # TP fill mode: False = bar close (Pine process_orders_on_close); True = at green_val (intrabar)
     tp_intrabar_fill: bool = False
 
     # Suppress yellow (SL) for the first N bars after entry (still allows TP and force-close).
-    # 0 = locked behavior. 39 = effectively no yellow (force-close handles all losers).
-    yellow_suppress_bars: int = 0
+    # 0 = original locked behavior. 30 = new locked (2026-05-25 sweep-validated).
+    yellow_suppress_bars: int = 30          # was 0; new locked = 30
 
     # Martingale
     use_martingale: bool = True

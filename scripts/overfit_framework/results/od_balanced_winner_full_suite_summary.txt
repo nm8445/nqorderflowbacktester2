@@ -1,0 +1,86 @@
+================================================================================
+OVERFIT FRAMEWORK — OD BALANCED WINNER
+  green_base=160, green_decay=2.0, yellow_suppress=30, yellow_atr=1.4, green_atr=1.5
+================================================================================
+
+### Overnight Drift BALANCED WINNER (160/2.0 + ys=30 + yatr=1.4 + gatr=1.5)  (1353 trades)
+================================================================================
+Baseline: PnL=$+342,910  PF=1.321  MDD=$-35,395
+
+--- Test 3: Monte Carlo Order Shuffling (10k perms) ---
+  Real MDD:                   $-35,395
+  Median shuffled MDD:        $-48,570
+  5%-95% shuffled MDD band:   $-75,570  ...  $-34,060
+  Real MDD better than 92.7% of random orderings
+  Verdict (need >50%): PASS
+
+--- Test 4: Bootstrap CI (10k resamples) ---
+  Real PnL:        $+342,910
+  95% CI PnL:      $+145,694  ...  $+544,901
+  95% CI PF:       1.127  ...  1.552
+  P(losing PnL):   0.05%
+  P(PF <= 1.0):    0.05%
+  Verdict (P(losing)<1% AND CI lower>0): PASS
+
+--- Test 2: Walk-Forward (rolling 12-mo PF) ---
+  Windows tested:    55
+  PF > 1.0:          49 (89.1%)
+  PF > 1.1:          44 (80.0%)
+  Min window PF:     0.939  (window ending 2023-06)
+  Median window PF:  1.334
+  Verdict (75%+ PF>1): PASS
+
+--- Test 1: Parameter Stability (1D sweeps around balanced winner) ---
+  CENTER: PnL=$+342,910  PF=1.321  MDD=$-35,395  trades=1353
+
+  Sweep green_base: [140.0, 150.0, 155.0, 160.0, 170.0, 180.0, 200.0]
+    green_base=140.0  trades= 1353  PnL=$   +325,930  PF=1.305  MDD=$   -35,045
+    green_base=150.0  trades= 1353  PnL=$   +337,015  PF=1.315  MDD=$   -35,125
+    green_base=155.0  trades= 1353  PnL=$   +334,395  PF=1.313  MDD=$   -35,395
+    green_base=160.0  trades= 1353  PnL=$   +342,910  PF=1.321  MDD=$   -35,395  *CENTER*
+    green_base=170.0  trades= 1352  PnL=$   +340,500  PF=1.318  MDD=$   -34,525
+    green_base=180.0  trades= 1352  PnL=$   +341,755  PF=1.320  MDD=$   -34,795
+    green_base=200.0  trades= 1351  PnL=$   +338,470  PF=1.317  MDD=$   -34,735
+    -> PASS  PnL range relative to center: 0.95x .. 1.00x
+
+  Sweep green_decay: [1.5, 1.75, 2.0, 2.25, 2.5]
+    green_decay=1.5  trades= 1352  PnL=$   +337,260  PF=1.315  MDD=$   -34,525
+    green_decay=1.75  trades= 1353  PnL=$   +345,280  PF=1.323  MDD=$   -34,525
+    green_decay=2.0  trades= 1353  PnL=$   +342,910  PF=1.321  MDD=$   -35,395  *CENTER*
+    green_decay=2.25  trades= 1353  PnL=$   +330,155  PF=1.309  MDD=$   -35,125
+    green_decay=2.5  trades= 1353  PnL=$   +330,200  PF=1.309  MDD=$   -35,045
+    -> PASS  PnL range relative to center: 0.96x .. 1.01x
+
+  Sweep yellow_suppress_bars: [25, 28, 30, 32, 35]
+    yellow_suppress_bars=25  trades= 1353  PnL=$   +312,290  PF=1.317  MDD=$   -32,485
+    yellow_suppress_bars=28  trades= 1353  PnL=$   +337,925  PF=1.323  MDD=$   -35,540
+    yellow_suppress_bars=30  trades= 1353  PnL=$   +342,910  PF=1.321  MDD=$   -35,395  *CENTER*
+    yellow_suppress_bars=32  trades= 1353  PnL=$   +322,265  PF=1.297  MDD=$   -34,105
+    yellow_suppress_bars=35  trades= 1353  PnL=$   +328,710  PF=1.295  MDD=$   -33,795
+    -> PASS  PnL range relative to center: 0.91x .. 1.00x
+
+  Sweep yellow_atr_mult: [1.2, 1.3, 1.4, 1.5]
+    yellow_atr_mult=1.2  trades= 1353  PnL=$   +342,525  PF=1.326  MDD=$   -36,275
+    yellow_atr_mult=1.3  trades= 1353  PnL=$   +331,040  PF=1.312  MDD=$   -35,320
+    yellow_atr_mult=1.4  trades= 1353  PnL=$   +342,910  PF=1.321  MDD=$   -35,395  *CENTER*
+    yellow_atr_mult=1.5  trades= 1353  PnL=$   +332,140  PF=1.308  MDD=$   -35,525
+    -> PASS  PnL range relative to center: 0.97x .. 1.00x
+
+  Sweep green_atr_mult: [1.0, 1.25, 1.5, 1.75]
+    green_atr_mult=1.0  trades= 1353  PnL=$   +330,160  PF=1.310  MDD=$   -31,265
+    green_atr_mult=1.25  trades= 1353  PnL=$   +325,085  PF=1.304  MDD=$   -35,395
+    green_atr_mult=1.5  trades= 1353  PnL=$   +342,910  PF=1.321  MDD=$   -35,395  *CENTER*
+    green_atr_mult=1.75  trades= 1352  PnL=$   +344,135  PF=1.322  MDD=$   -34,525
+    -> PASS  PnL range relative to center: 0.95x .. 1.00x
+
+  OVERALL Test 1: PASS
+
+--- Test 5: Direction Permutation (1000 perms) ---
+  Real PnL (all long, no-mart at 1c): $+139,525
+  (228s for 1000 perms across 6 workers)
+  Perm median:     $+772
+  Perm 5/95%:      $-111,220  ...  $+114,148
+  Perm 99%:        $+159,244
+  Real beats 97.90% of perms
+  p-value: 0.0210
+  Verdict (p<0.01): FAIL

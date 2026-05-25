@@ -35,21 +35,24 @@ def main() -> None:
     bars = build_full_20min_series(PARQUET, PICKLES)
     print(f"  bars: {len(bars):,}  range: {bars.index.min()} -> {bars.index.max()}\n", flush=True)
 
+    # UPDATED 2026-05-25: sweep-validated config (live/od_green_sweep_top_configs.md)
+    # +40% net $ vs prior locked baseline ($245K -> $343K), 4/5 strict overfit pass.
     params = StrategyParams(
         yellow_atr_len=14,
-        yellow_atr_mult=1.30,
+        yellow_atr_mult=1.40,           # was 1.30
         yellow_drift=0.0,
         yellow_mode="pure_ratchet",
         green_atr_len=14,
-        green_atr_mult=1.00,
-        green_base=82.5,
-        green_decay=1.5,
+        green_atr_mult=1.50,            # was 1.00
+        green_base=160.0,               # was 82.5
+        green_decay=2.00,               # was 1.5
         red_intercept=0.0,
         red_drift=0.45,
         use_be=False,
         use_martingale=True,
         base_qty=1,
         loss_qty=2,
+        yellow_suppress_bars=30,        # NEW: was implicit 0
     )
 
     trades = trades_to_df(run_backtest(bars, params))

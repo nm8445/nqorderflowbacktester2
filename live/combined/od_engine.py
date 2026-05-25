@@ -3,17 +3,24 @@
 Port of the locked overnight-drift strategy. Long NQ at 19:00 ET, force-close
 at 08:00 ET, exits via yellow stop / green target / time-stop.
 
-Locked config (`live/overnight drift/live config overnight drift.md`):
+Locked config (`live/od_green_sweep_top_configs.md`, updated 2026-05-25):
   - Entry: 19:00 ET long
   - Force-close: 08:00 ET
-  - Yellow ATR len 14, mult 1.30, mode pure_ratchet (only moves up)
-  - Green: red_val + 82.5 - 1.50*bars_in_trade + 1.00*ATR(14)
+  - Yellow ATR len 14, mult 1.40 (was 1.30), mode pure_ratchet (only moves up)
+  - Yellow SUPPRESSED for first 30 bars in trade (was: no suppression)
+  - Green: red_val + 160 - 2.00*bars_in_trade + 1.50*ATR(14)
+    (was: red_val + 82.5 - 1.50*bars_in_trade + 1.00*ATR(14))
   - Red:   entry_close + 0 + 0.45*bars_in_trade
   - BE rule: OFF
   - Martingale: ON (s1-L2)  base=1, loss_qty=2
       state 0 -> base
       state 1 (after a base-size loss) -> loss_qty (2)
       state 2 (after the recovery trade) -> base again regardless
+
+UPGRADE (2026-05-25): green/yellow widened per overfit-validated sweep.
+Expected: +40% net $ vs prior locked baseline ($245K -> $343K),
+MDD -$35K (vs prior -$30K), 4/5 strict overfit tests pass (1 borderline same
+as prior locked). See live/od_green_sweep_top_configs.md.
 """
 from __future__ import annotations
 
@@ -28,20 +35,21 @@ import pandas as pd
 from live.combined.bar_builder import Bar
 from live.combined.config import ET_TZ
 
-# ============ Locked params ============
-ENTRY_TIME       = time(19, 0)
-FORCE_CLOSE_TIME = time(8, 0)
-ATR_LEN          = 14
-YELLOW_MULT      = 1.30
-GREEN_MULT       = 1.00
-GREEN_BASE       = 82.5
-GREEN_DECAY      = 1.50
-RED_INTERCEPT    = 0.0
-RED_DRIFT        = 0.45
-USE_BE           = False
-USE_MARTINGALE   = True
-BASE_QTY         = 1
-LOSS_QTY         = 2
+# ============ Locked params (updated 2026-05-25) ============
+ENTRY_TIME           = time(19, 0)
+FORCE_CLOSE_TIME     = time(8, 0)
+ATR_LEN              = 14
+YELLOW_MULT          = 1.40    # was 1.30
+GREEN_MULT           = 1.50    # was 1.00
+GREEN_BASE           = 160.0   # was 82.5
+GREEN_DECAY          = 2.00    # was 1.50
+YELLOW_SUPPRESS_BARS = 30      # NEW: skip yellow stop for first N bars in trade
+RED_INTERCEPT        = 0.0
+RED_DRIFT            = 0.45
+USE_BE               = False
+USE_MARTINGALE       = True
+BASE_QTY             = 1
+LOSS_QTY             = 2
 
 # Toggle to disable mart entirely (per Phase 4 task description "marti OFF" — leave default ON)
 ENABLE_MART = True
@@ -210,8 +218,11 @@ class ODEngine:
         if not exited and bar.high >= green_val:
             self._do_exit(bar.close, ts_et, "TP_GREEN")
             exited = True
-        # 2. SL Yellow — close at/below yellow AND bearish bar
-        if not exited and not np.isnan(pos.yellow_val) and bar.close <= pos.yellow_val and bar.close < bar.open:
+        # 2. SL Yellow — close at/below yellow AND bearish bar.
+        # SUPPRESSED for first YELLOW_SUPPRESS_BARS bars (lets new trends breathe).
+        if (not exited and not np.isnan(pos.yellow_val)
+                and bar.close <= pos.yellow_val and bar.close < bar.open
+                and bars_in_trade >= YELLOW_SUPPRESS_BARS):
             self._do_exit(bar.close, ts_et, "SL_YELLOW")
             exited = True
         # 3. Force close at 08:00 ET
