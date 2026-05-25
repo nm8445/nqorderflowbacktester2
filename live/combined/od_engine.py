@@ -3,13 +3,12 @@
 Port of the locked overnight-drift strategy. Long NQ at 19:00 ET, force-close
 at 08:00 ET, exits via yellow stop / green target / time-stop.
 
-Locked config (`live/od_green_sweep_top_configs.md`, updated 2026-05-25):
+Locked config (ORIGINAL LIVE — reverted from upgrade 2026-05-25):
   - Entry: 19:00 ET long
   - Force-close: 08:00 ET
-  - Yellow ATR len 14, mult 1.40 (was 1.30), mode pure_ratchet (only moves up)
-  - Yellow SUPPRESSED for first 30 bars in trade (was: no suppression)
-  - Green: red_val + 160 - 2.00*bars_in_trade + 1.50*ATR(14)
-    (was: red_val + 82.5 - 1.50*bars_in_trade + 1.00*ATR(14))
+  - Yellow ATR len 14, mult 1.30, mode pure_ratchet (only moves up)
+  - Yellow ACTIVE from bar 1 (no suppress)
+  - Green: red_val + 82.5 - 1.50*bars_in_trade + 1.00*ATR(14)
   - Red:   entry_close + 0 + 0.45*bars_in_trade
   - BE rule: OFF
   - Martingale: ON (s1-L2)  base=1, loss_qty=2
@@ -17,10 +16,15 @@ Locked config (`live/od_green_sweep_top_configs.md`, updated 2026-05-25):
       state 1 (after a base-size loss) -> loss_qty (2)
       state 2 (after the recovery trade) -> base again regardless
 
-UPGRADE (2026-05-25): green/yellow widened per overfit-validated sweep.
-Expected: +40% net $ vs prior locked baseline ($245K -> $343K),
-MDD -$35K (vs prior -$30K), 4/5 strict overfit tests pass (1 borderline same
-as prior locked). See live/od_green_sweep_top_configs.md.
+REVERT history (2026-05-25):
+- Initially upgraded to yellow_suppress=30 + wider green (160/2.0 + 1.4/1.5).
+- Live OOS in 5/7-22 produced -$19,370 single-trade disaster on 5/14
+  (yellow_suppress let a 2c martingale bleed 484 pts overnight before stopping).
+- Wider-green improvements DEPENDED on yellow_suppress; without suppress,
+  no green widening beat original on both IS+OOS.
+- Reverted to original config for tail-risk protection. Net ~$209K (was theoretical
+  $343K), worst trade -$10,870 (was -$19,370). Better prop-firm fit.
+See live/od_green_sweep_top_configs.md for full sweep analysis.
 """
 from __future__ import annotations
 
@@ -35,15 +39,15 @@ import pandas as pd
 from live.combined.bar_builder import Bar
 from live.combined.config import ET_TZ
 
-# ============ Locked params (updated 2026-05-25) ============
+# ============ Locked params (REVERTED to original live 2026-05-25) ============
 ENTRY_TIME           = time(19, 0)
 FORCE_CLOSE_TIME     = time(8, 0)
 ATR_LEN              = 14
-YELLOW_MULT          = 1.40    # was 1.30
-GREEN_MULT           = 1.50    # was 1.00
-GREEN_BASE           = 160.0   # was 82.5
-GREEN_DECAY          = 2.00    # was 1.50
-YELLOW_SUPPRESS_BARS = 30      # NEW: skip yellow stop for first N bars in trade
+YELLOW_MULT          = 1.30    # original live
+GREEN_MULT           = 1.00    # original live
+GREEN_BASE           = 82.5    # original live
+GREEN_DECAY          = 1.50    # original live
+YELLOW_SUPPRESS_BARS = 0       # 0 = no suppress (yellow active from bar 1)
 RED_INTERCEPT        = 0.0
 RED_DRIFT            = 0.45
 USE_BE               = False
