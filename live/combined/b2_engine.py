@@ -54,7 +54,7 @@ DROP_POS_SHORT = True
 # FC-only martingale: after a force-close LOSS, next trade size doubles to 2.
 # After a size-2 trade (regardless of outcome), size resets to 1.
 # Matches apply_mart_fc() in lock_v2_k08_lock045_mart_fc_filtered.py:177.
-ENABLE_FC_MART = True
+ENABLE_FC_MART = False   # marti OFF for prop accounts (floating-DD safety)
 
 
 class Direction(Enum):

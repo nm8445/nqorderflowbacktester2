@@ -56,7 +56,7 @@ BASE_QTY             = 1
 LOSS_QTY             = 2
 
 # Toggle to disable mart entirely (per Phase 4 task description "marti OFF" — leave default ON)
-ENABLE_MART = True
+ENABLE_MART = False   # marti OFF for prop accounts (floating-DD safety; +7.5pt pass rate)
 
 
 class Direction(Enum):
