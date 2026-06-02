@@ -49,10 +49,19 @@ class StrategyParams:
     yellow_atr_len: int = 14
     yellow_atr_mult: float = 1.30           # original live
     yellow_drift: float = 0.0
-    yellow_mode: str = "pure_ratchet"
+    yellow_mode: str = "pure_ratchet"  # pure_ratchet | drift_floor | raw_atr | bearish_drift | breathing_trail
     # bearish_drift: like pure_ratchet but yellow can drift DOWN by bearish_drift_pts
     # on bars where close < open. Cannot drop below raw_atr.
     bearish_drift_pts: float = 0.0
+
+    # breathing_trail: yellow trails up gently on favorable bars and eases down on
+    # adverse bars, but is NEVER pulled tighter than min_gap_atr*ATR below price
+    # (set > yellow_atr_mult so it stays looser than raw_atr and survives normal
+    # pullbacks). Down-drift is bounded by a hard floor max_room_pts below entry.
+    min_gap_atr: float = 2.0      # min distance (in ATR mult) yellow keeps below price
+    trail_up_step: float = 2.0    # pts/bar yellow rises on favorable (green) bars
+    trail_down_step: float = 1.0  # pts/bar yellow eases down on adverse (red) bars
+    max_room_pts: float = 70.0    # hard floor: yellow never drops below entry - this
 
     # Green (target) — REVERTED to original live production config
     green_atr_len: int = 14
@@ -252,6 +261,20 @@ def run_backtest(bars: pd.DataFrame, params: StrategyParams = StrategyParams()) 
                         yellow_val = max(drifted, raw_yellow) if not np.isnan(raw_yellow) else drifted
                     else:
                         yellow_val = max(prev_yellow, raw_yellow) if not np.isnan(raw_yellow) else prev_yellow
+            elif params.yellow_mode == "breathing_trail":
+                # Trail up gently on green bars, ease down on red bars, but cap so
+                # yellow is never tighter than min_gap_atr*ATR below price (looser
+                # than raw_yellow), and never looser than max_room_pts below entry.
+                loose_band = c - params.min_gap_atr * ay if not np.isnan(ay) else np.nan
+                hard_floor = entry_price - params.max_room_pts
+                if np.isnan(prev_yellow):
+                    yellow_val = loose_band if not np.isnan(loose_band) else hard_floor
+                else:
+                    step = params.trail_up_step if c >= o else -params.trail_down_step
+                    target = prev_yellow + step
+                    if not np.isnan(loose_band):
+                        target = min(target, loose_band)   # never tighter than the loose band
+                    yellow_val = max(target, hard_floor)   # never looser than the hard floor
             else:  # raw_atr
                 yellow_val = raw_yellow
 

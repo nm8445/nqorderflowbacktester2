@@ -350,7 +350,11 @@ def run_live(execute_to_nt8: bool = False,
     # hedge an already-open position in another strategy.
     from live.combined.coordinator import Coordinator
     coord = Coordinator()
-    coord.load_state()   # restore if fresh (< 5 min old)
+    # NOTE: load_state() is deferred until AFTER engines are registered (see below).
+    # This lets the load logic validate restored open_dir entries against actual
+    # engine positions — clears phantom entries when an engine was restarted
+    # while a position was open (e.g., manual close on NT8/MT5 between shutdown
+    # and restart).
     eng = paper_logs["engines"]
     paper_cbs = paper_logs["paper_callbacks"]
 
@@ -416,6 +420,29 @@ def run_live(execute_to_nt8: bool = False,
         coord.register(strat_name, eng[strat_name], *downstream)
     print(f"[run_phase1] COORDINATOR wired — no-hedge rule active across 4 strats.\n")
 
+    # Restore coordinator state AFTER engines are registered, so the desync-fix
+    # logic in load_state() can validate restored open_dir entries against the
+    # actual engine.position attributes.
+    coord.load_state()
+    # Restore OD/B2 martingale state from a separate, freshness-gate-free file
+    # (martingale state stays valid across weekends/holidays). Edit
+    # live/combined/state/martingale_state.json by hand to override.
+    coord.load_marti_state()
+
+    # ===== MFFU news blackout watcher =====
+    # Force-flattens all open positions 2:30 before any T1 event (FOMC, FOMC
+    # Minutes, NFP, CPI). Entry blocking is handled separately by the coordinator
+    # via is_in_blackout() — see coordinator._handle ENTRY path.
+    news_watcher = None
+    try:
+        from live.combined.news_blackout import NewsBlackoutWatcher
+        news_watcher = NewsBlackoutWatcher(coord, nt8x=nt8, mt5x=mt5x)
+        news_watcher.start()
+    except Exception as e:
+        print(f"[run_phase1] FAILED to start news_blackout watcher: {e}")
+        print(f"  Entries will still be gated via coordinator (if module import works), "
+              f"but no auto-flatten before T1 events.")
+
     # ===== Session backfill (T+30 and T+60) — fills pre-startup session gap =====
     # If you start after 18:00 ET (mid-session), Databento Historical has the
     # pre-startup bars but not until 30 min after they happened. Two passes
@@ -428,8 +455,34 @@ def run_live(execute_to_nt8: bool = False,
     except Exception as e:
         print(f"[backfill] failed to schedule: {e}")
 
+    # ===== Tick-level MT5 protective close monitor =====
+    # RV/B2/Fabio have intrabar SL/TP. Python engines only detect a hit on bar
+    # close, so MT5 (no resting TP) would stay open until then. This monitor
+    # watches every tick and fires an immediate MT5 close the moment a level is
+    # crossed — matching NT8's resting-bracket fill timing. No-op if MT5 absent.
+    tick_monitor = None
+    try:
+        from live.combined.tick_position_monitor import TickPositionMonitor
+        tick_monitor = TickPositionMonitor(
+            engines={"RV": eng["RV"], "B2": eng["B2"], "FB": eng["FB"]},
+            mt5x=mt5x,
+        )
+        print(f"[run_phase1] Tick-level MT5 protective monitor wired "
+              f"(active={mt5x is not None}).\n")
+    except Exception as e:
+        print(f"[run_phase1] FAILED to wire tick monitor: {e}")
+
     from live.combined.data_feed import DatabentoLiveFeed
-    feed = DatabentoLiveFeed(on_tick=multi.on_tick)
+    if tick_monitor is not None:
+        _multi_on_tick = multi.on_tick
+        def _on_tick_with_monitor(ts_et, price, size, side):
+            # Bar processing FIRST (engine bar-close exits, entries), then the
+            # tick-level MT5 protective check on the resulting position state.
+            _multi_on_tick(ts_et, price, size, side)
+            tick_monitor.on_tick(price)
+        feed = DatabentoLiveFeed(on_tick=_on_tick_with_monitor)
+    else:
+        feed = DatabentoLiveFeed(on_tick=multi.on_tick)
 
     def graceful_stop(sig, frame):
         print("\n[run_phase1] caught signal, stopping...")

@@ -57,7 +57,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private ListBox logListBox;
 
         // ============== Trading config ==============
-        private string accountName    = "Sim101";
+        private string accountName    = "MFFUSFFLX606768002";
         private string instrumentName = "MNQ 06-26";
         private Account trackedAccount = null;
         private NinjaTrader.Cbi.Instrument resolvedInstrument = null;
@@ -454,17 +454,54 @@ namespace NinjaTrader.NinjaScript.AddOns
             Log($"CLOSE {pos.Tag} reason={reason}");
             try
             {
+                // SAFETY VALIDATION (added 2026-05-27):
+                // Before submitting a close order, verify the broker actually has
+                // an open position in the same direction. If not (e.g., user
+                // manually flattened via NT8 GUI), a BuyToCover/Sell market order
+                // with no offsetting position becomes a NEW opening trade — opens
+                // a long when we meant to close a short, or vice versa.
+                var brokerPos = trackedAccount.Positions
+                    .FirstOrDefault(p => p.Instrument == resolvedInstrument);
+                MarketPosition brokerSide = brokerPos == null
+                    ? MarketPosition.Flat
+                    : brokerPos.MarketPosition;
+                int brokerQty = brokerPos == null ? 0 : brokerPos.Quantity;
+
+                MarketPosition expectedSide = (pos.Direction == "LONG")
+                    ? MarketPosition.Long
+                    : MarketPosition.Short;
+
+                if (brokerSide != expectedSide || brokerQty == 0)
+                {
+                    Log($"  CLOSE ABORTED {pos.Tag}: broker side={brokerSide} qty={brokerQty} "
+                        + $"but tracked={pos.Direction} qty={pos.Quantity}. "
+                        + "Likely closed externally (manual flatten). Untracking only — no order sent.");
+                    // Cancel any orphan OCO orders so they don't fire later
+                    if (pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working)
+                        trackedAccount.Cancel(new[] { pos.StopOrder });
+                    if (pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working)
+                        trackedAccount.Cancel(new[] { pos.TargetOrder });
+                    openTaggedPositions.TryRemove(pos.Tag, out _);
+                    UpdatePositionsLabel();
+                    return;
+                }
+
                 // Cancel any pending OCO orders
                 if (pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working)
                     trackedAccount.Cancel(new[] { pos.StopOrder });
                 if (pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working)
                     trackedAccount.Cancel(new[] { pos.TargetOrder });
 
+                // Cap close quantity to actual broker position (in case of partial external close)
+                int closeQty = Math.Min(pos.Quantity, brokerQty);
+                if (closeQty != pos.Quantity)
+                    Log($"  CLOSE {pos.Tag}: capping qty {pos.Quantity} -> {closeQty} to match broker");
+
                 // Send market exit
                 OrderAction oa = pos.Direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
                 var closeOrder = trackedAccount.CreateOrder(
                     resolvedInstrument, oa, OrderType.Market,
-                    OrderEntry.Manual, TimeInForce.Day, pos.Quantity, 0, 0,
+                    OrderEntry.Manual, TimeInForce.Day, closeQty, 0, 0,
                     "", pos.Tag + "_X", DateTime.MaxValue, null);
                 trackedAccount.Submit(new[] { closeOrder });
             }

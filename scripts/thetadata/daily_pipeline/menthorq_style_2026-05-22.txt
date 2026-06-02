@@ -1,0 +1,35 @@
+=== MENTHORQ-STYLE GAMMA LEVELS  2026-05-22 (Fri) ===
+  Window: 1D Expected Move = spot * ATM_IV * sqrt(1/252)
+  Score:  |Net GEX| + spot * |Net DEX|  (excludes CR and PS strikes)
+  HVL:    cumulative GEX zero-crossing within +/-5% of spot
+  QQQ ratio: 41.300  |  NDX-NQ basis: +100.0
+
+--- QQQ ---
+  spot:             717.54    NQ-equiv: 29634.40    (NQ = QQQ * 41.300)
+  ATM IV:           0.1259
+  1D Expected Move: +/- 5.69    window: [711.85, 723.23]
+  HVL:              K=725.0  NQ=29942
+  HVL 0DTE:         K=718.0  NQ=29653
+  Call Resistance:  K=718.0  NQ=29653  (calls-only gex +1.14e+11)
+  Put Support:      K=717.0  NQ=29612  (puts-only gex -3.87e+10)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):
+    GEX_1   K=   715.0  NQ=   29529  gex=+3.96e+10  net_dex=+7.19e+08  call_dex=+7.34e+08  put_dex=-1.46e+07
+    GEX_2   K=   714.0  NQ=   29488  gex=-4.17e+09  net_dex=+5.76e+08  call_dex=+5.80e+08  put_dex=-3.92e+06
+    GEX_3   K=   712.0  NQ=   29406  gex=+7.28e+09  net_dex=+4.81e+08  call_dex=+4.88e+08  put_dex=-6.83e+06
+    GEX_4   K=   713.0  NQ=   29447  gex=-3.15e+09  net_dex=+3.23e+08  call_dex=+3.26e+08  put_dex=-3.46e+06
+    GEX_5   K=   716.0  NQ=   29571  gex=+7.17e+09  net_dex=+1.98e+08  call_dex=+2.07e+08  put_dex=-9.27e+06
+    GEX_6   K=   719.0  NQ=   29695  gex=+1.48e+10  net_dex=-4.19e+07  call_dex=+1.12e+07  put_dex=-5.31e+07
+    GEX_7   K=   721.0  NQ=   29777  gex=+6.31e+07  net_dex=-1.17e+08  call_dex=+0.00e+00  put_dex=-1.17e+08
+    GEX_8   K=   720.0  NQ=   29736  gex=-3.33e+08  net_dex=-9.60e+07  call_dex=+2.77e+06  put_dex=-9.87e+07
+    GEX_9   K=   722.0  NQ=   29819  gex=-1.52e+09  net_dex=-3.84e+07  call_dex=+0.00e+00  put_dex=-3.84e+07
+    GEX_10  K=   723.0  NQ=   29860  gex=-4.23e+08  net_dex=-1.73e+07  call_dex=+1.96e+05  put_dex=-1.75e+07
+
+--- NDX (NDX + NDXP combined) ---
+  spot:             29526.30    NQ-equiv: 29626.30    (NQ = NDX + 100.0)
+  ATM IV:           0.1254
+  1D Expected Move: +/- 233.21    window: [29293.09, 29759.51]
+  HVL:              K=29200.0  NQ=29300
+  HVL 0DTE:         --
+  Call Resistance:  K=29600.0  NQ=29700  (calls-only gex +1.08e+10)
+  Put Support:      K=29500.0  NQ=29600  (puts-only gex -4.61e+09)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):

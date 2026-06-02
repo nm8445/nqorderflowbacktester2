@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import queue
 import threading
 import time
 import uuid
@@ -116,6 +117,14 @@ class MT5Executor:
         self._initialized = False
         # Broker-specific filling mode (detected during init from symbol_info)
         self._filling_mode = None
+
+        # ===== Async order queue (mirrors NT8 design) =====
+        # Decouples mt5.order_send (synchronous, can block on broker timeouts)
+        # from the coordinator/consumer thread that emits signals.
+        # On signal: enqueue in microseconds; poster thread does the actual MT5 call.
+        self._signal_queue: queue.Queue = queue.Queue(maxsize=1000)
+        self._poster_thread: Optional[threading.Thread] = None
+        self.n_queue_full_drops = 0
 
         # Counters
         self.n_entries_sent = 0
@@ -445,32 +454,19 @@ class MT5Executor:
             d = ("LONG" if sig.direction.name == "LONG"
                  else "SHORT" if sig.direction.name == "SHORT" else "FLAT")
             if sig.event == "ENTRY" and rv.position is not None:
-                p = rv.position
-                self._send_entry("RV", d,
-                                  sl_price=p.stop_price, tp_price=p.target_price,
-                                  entry_ts=sig.timestamp, signal_entry_price=sig.price)
-            elif sig.event == "EXIT" and sig.reason == "force_close":
-                self._close_strategy("RV", sig.reason)
+                # Disaster SL only — strategy controls actual exit via backend signal
+                self._enqueue(("ENTRY", "RV", d, None, None, sig.timestamp, sig.price))
+            elif sig.event == "EXIT":
+                self._enqueue(("CLOSE", "RV", sig.reason))
 
         def on_b2(sig):
             d = ("LONG" if sig.direction.name == "LONG"
                  else "SHORT" if sig.direction.name == "SHORT" else "FLAT")
             if sig.event == "ENTRY" and b2.position is not None:
-                p = b2.position
-                # B2: green TP from strategy, SL = disaster (per config)
-                self._send_entry("B2", d, sl_price=None, tp_price=p.green_val,
-                                  entry_ts=sig.timestamp, signal_entry_price=sig.price)
+                # Disaster SL only — strategy controls actual exit via backend signal
+                self._enqueue(("ENTRY", "B2", d, None, None, sig.timestamp, sig.price))
             elif sig.event == "EXIT":
-                if sig.reason == "TP_FIXED":
-                    # NT8 path drops the local tag (bracket already filled).
-                    # On MT5 the TP bracket also fires — broker closes, we just untrack.
-                    with self._lock:
-                        if "B2" in self._open:
-                            self._open.pop("B2", None)
-                            self.n_exits_sent += 1
-                            print(f"  [mt5][{self.firm_label}][B2-TP_FIXED] bracket filled by broker; untracked")
-                else:
-                    self._close_strategy("B2", sig.reason)
+                self._enqueue(("CLOSE", "B2", sig.reason))
 
         def on_od(sig):
             d = "LONG" if sig.direction.name == "LONG" else "FLAT"
@@ -484,26 +480,88 @@ class MT5Executor:
                 if sig.qty == 2:
                     print(f"  [mt5][{self.firm_label}][OD-MARTINGALE] engine signals 2c, "
                           f"sending base lots only ({self.lots.get('OD', 0.01)}) for prop firm safety")
-                self._send_entry("OD", d, sl_price=None, tp_price=None,
-                                  entry_ts=sig.timestamp, signal_entry_price=sig.price)
+                self._enqueue(("ENTRY", "OD", d, None, None, sig.timestamp, sig.price))
             elif sig.event == "EXIT":
-                self._close_strategy("OD", sig.reason)
+                self._enqueue(("CLOSE", "OD", sig.reason))
 
         def on_fb(sig):
             d = "LONG"
             if sig.event == "ENTRY" and fb.position is not None:
-                p = fb.position
-                self._send_entry("FB", d, sl_price=p.sl_price, tp_price=p.tp_price,
-                                  entry_ts=sig.timestamp, signal_entry_price=sig.price)
-            elif sig.event == "EXIT" and sig.reason == "EOD":
-                self._close_strategy("FB", sig.reason)
+                # Disaster SL only — strategy controls actual exit via backend signal
+                self._enqueue(("ENTRY", "FB", d, None, None, sig.timestamp, sig.price))
+            elif sig.event == "EXIT":
+                self._enqueue(("CLOSE", "FB", sig.reason))
 
         print(f"[mt5][{self.firm_label}] callbacks created for RV+B2+OD+FB")
         return {"RV": on_rv, "B2": on_b2, "OD": on_od, "FB": on_fb}
 
+    # ---------- async poster (decouple mt5.order_send from consumer thread) ----------
+
+    def _start_poster(self) -> None:
+        """Start the poster thread that drains _signal_queue and runs MT5 calls.
+        Mirrors NT8's poster thread design. Idempotent."""
+        if self._poster_thread is not None and self._poster_thread.is_alive():
+            return
+
+        def _poster_loop():
+            print(f"[mt5][{self.firm_label}] poster thread started")
+            while not self._stop_event.is_set():
+                try:
+                    item = self._signal_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if item is None:    # sentinel to stop
+                    break
+                try:
+                    kind = item[0]
+                    if kind == "ENTRY":
+                        _, strat, direction, sl_price, tp_price, entry_ts, signal_entry_price = item
+                        self._send_entry(strat, direction, sl_price=sl_price, tp_price=tp_price,
+                                          entry_ts=entry_ts, signal_entry_price=signal_entry_price)
+                    elif kind == "CLOSE":
+                        _, strat, reason = item
+                        self._close_strategy(strat, reason)
+                    elif kind == "UNTRACK":
+                        # B2 TP_FIXED used to do this inline; preserve behavior off-thread
+                        _, strat = item
+                        with self._lock:
+                            if strat in self._open:
+                                self._open.pop(strat, None)
+                                self.n_exits_sent += 1
+                                print(f"  [mt5][{self.firm_label}][{strat}-TP_FIXED] "
+                                      f"bracket filled by broker; untracked")
+                    else:
+                        print(f"[mt5][{self.firm_label}] poster: unknown item kind={kind}")
+                except Exception as e:
+                    print(f"[mt5][{self.firm_label}] poster EXCEPTION: {e}")
+                    self.n_errors += 1
+                finally:
+                    try:
+                        self._signal_queue.task_done()
+                    except Exception:
+                        pass
+            print(f"[mt5][{self.firm_label}] poster thread stopped "
+                  f"(qsize={self._signal_queue.qsize()})")
+
+        self._poster_thread = threading.Thread(target=_poster_loop, daemon=True, name="mt5_poster")
+        self._poster_thread.start()
+
+    def _enqueue(self, item: tuple) -> bool:
+        """Non-blocking enqueue. Microsecond latency on consumer thread."""
+        try:
+            self._signal_queue.put_nowait(item)
+            return True
+        except queue.Full:
+            self.n_queue_full_drops += 1
+            print(f"  [mt5][{self.firm_label}] signal queue FULL — dropping {item[:2]}")
+            return False
+
     # ---------- heartbeat (light: just a connectivity ping, no flatten-on-stale) ----------
 
     def start_heartbeat(self) -> None:
+        # Also start the poster thread here — it's the universal "begin live operation" hook.
+        self._start_poster()
+
         if self._hb_thread is not None and self._hb_thread.is_alive():
             return
         self._stop_event.clear()
@@ -527,8 +585,15 @@ class MT5Executor:
 
     def stop(self) -> None:
         self._stop_event.set()
+        # Send sentinel to wake the poster thread
+        try:
+            self._signal_queue.put_nowait(None)
+        except Exception:
+            pass
         if self._hb_thread:
             self._hb_thread.join(timeout=3)
+        if self._poster_thread:
+            self._poster_thread.join(timeout=3)
         if not self.dry_run and _MT5_AVAILABLE and self._initialized:
             try:
                 mt5.shutdown()

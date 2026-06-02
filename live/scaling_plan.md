@@ -1,24 +1,29 @@
 # Scaling Plan — $500 to Funded Multi-Account Stack
 
-Last updated 2026-05-20. Based on Monte Carlo simulations using the live 4-strategy stack (RV + B2 + OD + Fabio ORB).
+Last updated 2026-05-25. Major revision adds the **milking model** for futures-side scaling (supersedes prior Phase 1-2 single-payout approach). CFD side unchanged.
 
 ---
 
-## TL;DR
+## TL;DR (revised 2026-05-25)
 
-Bootstrap $500 → 2 funded futures via 4-firm hedge. First payout (~2-3 weeks) goes ALL-IN on FundingPips CFDs (3× $399). Within 9-12 months, run rate target $7-10K/month.
+Bootstrap $500 → 2 funded futures via cross-firm hedge. Switch each cushion-locked account into **perpetual milking mode** at 1 MNQ ($1K withdrawal per cycle, $2K cushion maintained). Self-funding loop reinvests payouts into new evals → compounds toward ~25 active milking accounts at steady state.
 
 ```
-$500 (start)
-  ↓  4-firm futures hedge over 2 days
-2 funded futures @ 1 MNQ
-  ↓  Trade normally, ~2-3 weeks
-First $1,500 payout
-  ↓  All-in CFD: 3× FundingPips 100K 2-step ($1,197)
-2-3 funded FP CFDs @ 3 MNQ each (median 130 days to first payout)
-  ↓  Continued futures + maturing CFDs
-$7-10K/month target by month 9-12
+$500 seed
+  ↓  10 evals × $100 = $1K (50% pass = 5 funded)
+5 funded futures
+  ↓  Hedge at 1:1.5 RR ($2K SL / $3K TP) — 88% pair pass
+2-3 cushion-locked survivors @ +$3K each
+  ↓  Withdraw $1K → balance $52K, cushion $2K (DD floor locked at start)
+  ↓  Switch to 1 MNQ milking
+Each surviving account: $1K every ~16 days for ~13 cycles = $13.4K avg lifetime
+  ↓  Every payout reinvest $1K into 10 new evals → next loop
+Steady state: ~25 active milking accounts × $9.2K/yr = ~$230K/yr prop side
+  + CFD income on top (FN/FP) = $40-80K/yr
+TOTAL TARGET: $260-310K/yr at saturation
 ```
+
+**Old plan (single-payout, CFD-pivot) still in this doc as reference** — but milking model has 5× the per-account lifetime EV.
 
 ---
 
@@ -133,7 +138,160 @@ Using your real strategy edge (~55/45 winrate with proper R:R sizing).
 
 ---
 
-## The phased plan
+## Milking model (2026-05-25) — futures-side primary path
+
+Replaces the prior "first payout = $1.5K, then pivot to CFDs" assumption. Discovery: at Tradeify Lucid / TopStep Express / MFFU, the trailing DD floor **locks at starting balance** once you cross +$2K profit, and **does not trail down with withdrawals**. This enables a perpetual income loop.
+
+### Mechanic
+
+For each funded $50K account once cushion is locked:
+1. Account at balance $52K, DD floor $50K, cushion $2K
+2. Grind at **1 MNQ** (1/10 of NQ size) until cum profit ≥ +$3K AND ≥5 winning days
+3. Withdraw $1K → balance back to $52K, DD floor still $50K, cushion restored to $2K
+4. Repeat step 2-3 until the account blows
+5. When blown, the surviving payouts already extracted are kept
+
+### Why 1 MNQ is the right size for milking
+
+- Daily P&L at 1 MNQ: mean +$39, std $260, P(daily > $0) = 55.1%
+- Worst historical day at 1 MNQ: -$1,152 (was -$11,525 at 1 NQ)
+- 5-day cumulative at 1 MNQ: P(< -$2K) = 0.07% — basically can't blow in a 5-day window
+- Median 16 days to hit +$1K profit + 5 winning days
+- Per-cycle bust risk: ~7% (mostly tail variance over 25+ days)
+
+### Per-account economics (MC `scripts/montecarlo/funded_milking_plan.py`)
+
+| Metric | Value |
+|---|---|
+| P(milk cycle success) | 92.9% |
+| Median days per cycle | 16 |
+| Avg cycles before blow | **13.4** |
+| **Avg lifetime extraction per account** | **$13,430** |
+| Median extraction | $9,000 |
+| p75 / p95 | $20,000 / $42,000 |
+| Avg trading days alive | 365 (~1.5 yrs) |
+
+### Phase 1 (cushion build) — hedge comparison at 1:1.5 RR
+
+For initial cushion lock, three options:
+
+| Approach | Avg survivors/10 | P(≤2 disaster) | Per-survivor cushion |
+|---|---|---|---|
+| **HEDGE 1:1.5 (5 pairs, $2K SL / $3K TP)** | **4.40** | **~5%** | **$3K** |
+| Independent 1 NQ MAE-aware | 4.20 | 13.74% | $2K |
+| Copy-pair 1 NQ (correlated) | 4.20 | 30.36% | $2K |
+
+**HEDGE wins on variance.** Pair pass rate from random-walk math = 100/(100+200) prob long-side passes + 60% × 80% prob short-side passes-via-residual = **88%**. Survivor lands at +$3K cushion, withdraw $1K immediately → enter milking with $2K cushion.
+
+### Full cycle economics
+
+- 10 evals × $100 = $1,000 eval cost (50% pass rate = 5 funded avg)
+- 5 funded → 2 hedge pairs + 1 solo = 2.18 cushion-locked survivors
+- 2.18 × ($1K immediate withdrawal + $13.4K milking lifetime) = **$31.4K per cycle over 1.5 years**
+- Net per cycle: $30.4K
+
+### Steady-state income with cycle reinvestment
+
+User reinvests $1K of each payout into next 10 evals. Self-funding loop.
+
+| Cycle cadence | New milkers/yr | Active at SS | Annual income |
+|---|---|---|---|
+| Every month (12/yr) | 26 | 39 | $360K (uncapped) |
+| Every 6 weeks (8/yr) | 17 | 26 | $240K |
+| Every 2 months (6/yr) | 13 | 20 | $184K |
+
+**Realistic firm-account caps**: TopStep max ~5, Tradeify ~5-10, MFFU ~10. Total across 3-5 firms = **~25 active accounts realistic ceiling**.
+
+At 25 active × $9.2K/yr/account = **~$230K/yr prop side at saturation**.
+
+### Critical assumptions to verify per firm
+
+1. **DD floor locks at starting balance and does NOT trail with withdrawals** — load-bearing for the whole model:
+   - Tradeify Lucid: YES (confirmed)
+   - TopStep $50K Express: YES (locks at $50K once balance hits $52K)
+   - MFFU: depends on account type — verify
+
+2. **No consistency rule in funded phase** (or rule ≥50%):
+   - Tradeify Lucid: no consistency
+   - TopStep: no consistency
+   - MFFU: 30% on some Express variants — would force higher per-cycle target (~$3.3K instead of $3K)
+
+3. **5 winning days minimum between payouts** — non-binding at 1 MNQ (median 16 days to $1K already includes ≥5 winning days naturally)
+
+4. **First-payout delay**:
+   - Tradeify Lucid: 8 days post-funding
+   - TopStep: 30 days first, 14 days subsequent
+   - MFFU: varies
+   - **Initial seeding takes 30-60 days before the loop self-sustains**
+
+5. **Account limit per trader per firm** — caps total active accounts at ~25-30 across the universe of allowed firms
+
+### Month-by-month income progression (2026-05-26 MC `funded_milking_plan_v2.py`)
+
+Day-by-day simulation starting from **1 fresh funded account**, with first-cycle pass 71%, milk cycle success 92.9%, eval pass 35%, hedge pair pass 88%, capped at 25 active milkers.
+
+| Month | Mean income | Median | p10 | p90 | Active milkers | Cum mean |
+|---|---|---|---|---|---|---|
+| **M1** | **$0** | $0 | $0 | $0 | 0 | $0 |
+| M2 | $1,147 | $1.5K | $0 | $1.5K | 0.9 | $1.1K |
+| M3 | $3,584 | $4K | $0 | $7.1K | 2.9 | $4.7K |
+| M4 | $13,306 | $15K | $0 | $26K | 10.9 | $18.0K |
+| M5 | $19,630 | $27K | $0 | $31K | 16.1 | $37.7K |
+| **M6** | **$19,930** | $27K | $0 | $31K | **16.4** | **$57.6K** |
+| M7+ steady-state | $19,900/mo | $27K | $0 | $31K | 16.4 | growing |
+| M12 | $19,934 | $27K | $0 | $31K | 16.4 | **$177K** |
+| M24 | $19,995 | $27K | $0 | $31K | 16.4 | **$416K** |
+
+**24-month totals**: Mean $416K, Median $584K, p10 $0, p90 $604K.
+
+**Bust risk**: 29.4% chance of zero income (early wipeout). Driven by 29% first-cycle blow rate on the SINGLE starting funded account. Mitigations:
+- Start with 2 funded → P(both blow) = 8.4%
+- Start with 3 funded → P(all blow) = 2.4%
+
+**Timing intuition**:
+- M1: First account grinding (30 days), no income yet
+- M2: First $1.5K hits, first eval batch fires
+- M3: ~3 milkers, income starts flowing
+- M4: Snowball (10+ milkers), sharp ramp
+- M5: Near saturation (16 milkers)
+- M6+: Steady state ~$20K/month, mortality balanced by replenishment
+
+**Why 16.4 active (not 25 cap)**: mortality from blown milkers (~1.5/month) is matched by reinvest-driven new additions when buying ~1 eval batch/month. Pushing past 16-17 active requires more aggressive reinvest OR firm-roster expansion.
+
+### Why not just 1 NQ for cushion build (MAE-aware bust check)
+
+Tested in `scripts/montecarlo/funded_1nq_mae_aware.py`. Unrealized intraday MAE blows accounts before realized P&L gets there:
+
+- 15.7% of all 4-strat trades historically touched -$2K MAE during the trade
+- Per-account lock rate at 1 NQ MAE-aware: **40.7%** (was 60.8% in naive MC that ignored MAE)
+- 10 independent accounts: 13.7% disaster rate (≤2 survivors)
+- Hedge: 5.79% disaster rate
+
+The hedge is structurally safer because its pass rate depends on **price-path geometry**, not on path-dependent MAE accumulation.
+
+### Why re-entry on OD doesn't help (tested 2026-05-25)
+
+Tested in `scripts/overnight drift strategy/od_yellow_reentry.py`. Re-entering after a yellow stop hit (when 20-min candle closes back above prior yellow level):
+
+| Variant | Net $ | PF | MDD |
+|---|---|---|---|
+| Baseline (no re-entry) | $208,825 | **1.281** | **-$28,155** |
+| Re-entry max=2 | $167,050 | 1.106 | -$70,695 |
+| Re-entry max=5 | $241,855 | 1.135 | -$80,180 |
+
+PF crashes and MDD 3× larger. Yellow stops are correctly catching real reversals — re-entries compound the losses on bad nights. **Keep OD as-is.**
+
+### Updated MC scripts (2026-05-25)
+
+- `scripts/montecarlo/eval_4strat_vs_coinflip.py` — 4-strat at 1 NQ during eval gives 56.4% pass rate (vs 50% coinflip)
+- `scripts/montecarlo/funded_1nq_vs_hedge.py` — initial hedge vs 1 NQ comparison
+- `scripts/montecarlo/funded_1nq_mae_aware.py` — adds MAE-aware bust check
+- `scripts/montecarlo/funded_milking_plan.py` — full milking lifetime model
+- `scripts/montecarlo/gamblers_ruin_eval_hedge_cycle.py` — original cycle MC (now superseded for funded phase)
+
+---
+
+## The phased plan (revised for milking)
 
 ### Phase 1: Bootstrap (Week 1) — $400-500
 
@@ -155,46 +313,83 @@ Using your real strategy edge (~55/45 winrate with proper R:R sizing).
 
 **Risk**: Cross-firm hedge detection. Doing it ONCE on a 1-2 day window is low-detection. Repeating is what triggers bans. **Do not repeat the hedge for additional funded accounts** — trade legitimately after this.
 
-### Phase 2: First payout (Weeks 2-3) — $0 cost
+### Phase 2: Enter milking (Weeks 2-4) — $0 cost
 
-Run 2 funded futures at **1 MNQ** with full 4-strat stack. Lucid Flex first payout target = $3,000 profit. At 1 MNQ on your edge (~$3K-5K/yr per account = ~$300/mo), expect ~10-15 trading days to hit first payout target.
+Once Phase 1 hedge locks cushion on surviving accounts (each at +$3K), withdraw $1K immediately → balance $52K, DD floor still $50K, cushion $2K. Switch to **1 MNQ** and begin the milking loop:
 
-**First payout: $1,500 cash** (90% split of $1,666 = $1,500).
+- Run 4-strat at 1 MNQ until cum profit +$3K AND ≥5 winning days (median ~16 days)
+- Withdraw $1K each time
+- Repeat
 
-### Phase 3: CFD reinvest (Month 2) — $1,500 → 3× FundingPips
+**Expected per-account income**:
+- Year 1: ~$9K per account from milking
+- Lifetime: $13.4K average per account before blow
+- 2 funded survivors → ~$18K total over 1.5 years
 
-**Action**: Buy 3× FundingPips 100K 2-step at $399 each = $1,197. Keep $300 buffer.
+**First-payout calendar gates** (real-world delay before first cash):
+- Tradeify Lucid Flex: 8 days
+- TopStep Express: 30 days first / 14 days subsequent
+- MFFU: ~14 days
 
-**Expected outcome**:
-- 3 × 0.86 = **2.58 expected challenge passes** (likely 2-3 funded CFDs)
-- Each funded CFD has $14,935 EV per attempt (3 MNQ → 3 MNQ config)
-- Total EV from this $1,500 reinvest = **$30-45K over ~6 months**
+So first cash from Phase 1 lands ~3-5 weeks after Phase 1 setup. After that, payouts arrive every ~16-20 trading days per account.
 
-**Alternative: All-in futures** ($1,500 → 15 evals @ $100 each, 30% pass = 4-5 funded futures):
-- Adds 4-5 funded futures, but at 10 accounts you're already at the gambler's ruin sim's cap (3 trades/day shared across accounts)
-- Marginal yield: +$10-15K/yr
-- **CFD all-in wins by 3× on EV**
+### Phase 3: Milking reinvest loop (Month 2+) — self-funding
 
-**Hybrid split** ($800 CFD + $700 futures): 2 FP evals (1.7 expected pass) + 7 futures evals (2.1 expected pass). Hedges variance but caps upside.
+Each payout cycle:
+1. Surviving accounts each pay out $1K → total $N K (where N = # of accounts paying that cycle)
+2. **Spend $1K of payout cash on 10 new evals** (or 20 evals if cash allows)
+3. ~50% eval pass rate (gambler's ruin coinflip baseline)
+4. Hedge newly-funded at 1:1.5 RR (88% pair pass) → 2-3 new cushion-locked
+5. Add to active milking pool
+6. **Remaining payout cash → personal income (or CFD parallel track)**
 
-**My pick**: All-in 3 FP CFD. Higher EV, fewer accounts to manage.
+**Why this beats the old CFD-pivot plan**:
+- Old: $1,500 → CFD challenges → 130 days median to first CFD payout (high upfront delay)
+- New: $1,000 → 10 evals → ~3 weeks to first new milking account → compounds
+- Per dollar of eval spend, milking returns ~$30 vs CFD's ~$30 too — but milking is **faster compounding** because cycles are 30 days vs 130 days
 
-### Phase 4: Stack period (Months 3-6) — $0
+**Sizing the reinvest cadence**:
+- Conservative: 1 new eval batch every 6 weeks (8/yr) → 17 new milkers/yr → 26 active at SS
+- Aggressive: 1 every month (12/yr) → 26 new milkers/yr → 39 active at SS
+- Constrained by **firm account limits** (~25 active across all firms)
 
-Run 2 futures + 2-3 challenge-phase CFDs simultaneously. Same trade signals from the 4-strat engine — no extra work.
+**CFD parallel track** (optional, runs alongside milking):
+- $1,500 → 3× FundingPips 100K 2-step ($1,197)
+- 2-3 expected passes × $14,935 EV = $30-45K over ~6 months
+- Independent capital stream from milking
+- Recommended once milking is self-sustaining at ~$3K/mo
 
-Expected payout cadence:
-- Futures: $1-1.5K/month from continued 1 MNQ trading
-- CFDs in challenge: $0 cash (paper progress toward P1/P2)
+### Phase 4: Ramp the milking pool (Months 3-6) — self-funding
 
-### Phase 5: CFD funded (Months 6+) — Full scale
+Continue Phase 3 reinvest loop. Active milking accounts grow toward steady state.
 
-Once CFDs pass and start paying:
-- 2-3 FP funded CFDs @ 3 MNQ each → ~$5-7K/month at scale (10 payouts per ~6 month lifecycle, $1.5K each)
-- 2 funded futures @ 1 MNQ → ~$1-2K/month
-- **Target combined: $7-10K/month by month 9-12**
+Expected pool growth (assuming 1 cycle/month):
+- Month 3: ~8 active
+- Month 4: ~12 active
+- Month 5: ~16 active
+- Month 6: ~20 active
 
-If CFDs prove reliable, **scale up to FN Stellar 2-Step 200K @ 5 MNQ** ($1,099 fee, expected $55K/yr if no per-trade rule confirmed).
+Income rate:
+- Per active account: ~$700/mo on average ($9.2K/yr)
+- Month 3: ~$5.5K/mo
+- Month 6: ~$14K/mo
+
+CFD challenges (if started in Phase 3) maturing → start paying months 5-7.
+
+### Phase 5: Saturation (Months 6+) — full scale
+
+Milking pool at firm-cap ceiling (~25 active accounts). Maintenance mode:
+- Replace blown accounts at natural mortality rate (~17/year for 25-pool, 13.4 cycles avg lifetime)
+- Spend ~$2-3K/yr on replacement evals
+
+**Target run rates**:
+- Milking @ 25 active: **~$19K/mo ($230K/yr)**
+- CFDs (2-3 FP funded): ~$3-5K/mo ($35-60K/yr)
+- **Combined: ~$22-24K/mo ($260-310K/yr)**
+
+If milking proves stable at saturation, **expand firm roster** (Apex with adjusted size for 30% rule, Bulenox, FunderProTrading, etc.) to push past 25 active. Each additional firm adds ~5 account slots → +$45K/yr.
+
+If CFDs prove reliable, **scale up to FN Stellar 2-Step 200K @ 5 MNQ** ($1,099 fee, expected $55K/yr).
 
 ---
 

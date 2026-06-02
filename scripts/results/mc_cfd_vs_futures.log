@@ -1,0 +1,62 @@
+Loaded 1354 historical days. mean=$394 std=$2600 min=$-11525 max=$12165
+Avg trades/day: 2.05
+CFD cost: $6.0/RT/MNQ (avg daily drag at 1 MNQ: $12.33)
+
+=== 2-STEP CHALLENGE PASS-RATE SWEEP ($100K, 5% DLL, 10% MaxLoss) ===
+
+FTMO_2step:
+ mnq  p1_pass  both_pass  median_days_to_pass  p25_days  p75_days  median_days_all
+   1    0.269      0.213                  331       285       379              252
+   2    0.775      0.721                  207       153       266              247
+   3    0.877      0.822                  139        96       198              146
+   4    0.876      0.800                  100        67       146              100
+   5    0.758      0.639                   65        44        96               59
+   6    0.736      0.610                   53        34        77               47
+   7    0.722      0.582                   40        26        61               36
+   8    0.659      0.511                   33        22        50               28
+
+FundingPips_2step:
+ mnq  p1_pass  both_pass  median_days_to_pass  p25_days  p75_days  median_days_all
+   1    0.468      0.367                  307       261       361              252
+   2    0.849      0.793                  185       133       245              208
+   3    0.909      0.852                  122        82       179              127
+   4    0.900      0.828                   84        54       128               84
+   5    0.787      0.655                   56        36        86               53
+   6    0.773      0.639                   44        28        66               40
+   7    0.739      0.600                   34        23        53               31
+   8    0.706      0.555                   28        18        42               25
+
+=== LIFETIME EV (1 attempt, pay fee, challenge -> funded; fee reimbursed on 1st funded payout) ===
+
+--- FTMO_2step ---
+ chal_mnq  fund_mnq  pass_rate  median_chal_days_if_pass  median_days_to_1st_pmt  median_payouts_if_pass  median_cash_if_pass  mean_cash_if_pass  ev_net_overall  ev_cash_overall
+        3         2       0.82                       140                     149                      11             11863.95           12038.42         9831.23          9929.29
+        3         3       0.83                       139                     148                      11             17700.12           17694.71        14627.77         14729.08
+        3         4       0.83                       144                     153                      10             21234.02           21522.33        17784.03         17897.97
+        4         2       0.80                        99                     108                      10             11683.38           11926.81         9487.12          9596.31
+        4         3       0.80                       100                     109                      11             17384.31           17463.39        13932.31         14047.55
+        4         4       0.81                        98                     107                      10             21370.00           21397.58        17221.82         17349.16
+        5         2       0.65                        66                      75                      11             11805.64           11999.05         7556.88          7751.39
+        5         3       0.63                        67                      76                      11             17486.38           17616.75        10970.76         11176.07
+        5         4       0.64                        67                      76                      10             21083.53           21295.69        13405.22         13616.47
+        6         2       0.62                        51                      60                      10             11772.23           12055.67         7210.65          7421.47
+        6         3       0.61                        51                      60                      11             17330.46           17350.79        10443.24         10660.32
+        6         4       0.62                        50                      59                      10             21292.79           21539.12        13097.85         13319.79
+
+--- FundingPips_2step ---
+ chal_mnq  fund_mnq  pass_rate  median_chal_days_if_pass  median_days_to_1st_pmt  median_payouts_if_pass  median_cash_if_pass  mean_cash_if_pass  ev_net_overall  ev_cash_overall
+        3         2       0.86                       123                     132                      10             11739.99           12028.44        10220.11         10303.56
+        3         3       0.86                       121                     130                      10             17576.95           17558.34        14935.08         15026.43
+        3         4       0.86                       123                     132                       9             20866.52           20855.58        17818.10         17919.11
+        4         2       0.82                        84                      93                      11             11938.60           12075.88         9778.70          9882.90
+        4         3       0.82                        83                      92                      10             17421.60           17396.30        14156.56         14268.44
+        4         4       0.82                        85                      94                      10             21780.21           21845.81        17785.37         17904.83
+        5         2       0.66                        56                      65                      10             11620.92           11905.64         7678.68          7869.63
+        5         3       0.67                        56                      65                      11             17475.47           17674.77        11692.78         11880.98
+        5         4       0.67                        57                      66                      10             21468.35           21356.49        14182.28         14381.46
+        6         2       0.63                        43                      52                      10             11795.05           11962.29         7344.28          7550.59
+        6         3       0.64                        44                      53                      11             17388.23           17540.61        10981.63         11190.91
+        6         4       0.64                        43                      52                      10             21572.46           21427.24        13470.98         13687.72
+
+Saved: C:\trading\nqorderflowbacktester\live\combined deployment plan\cfd_vs_futures_lifetime.csv
+Saved: C:\trading\nqorderflowbacktester\live\combined deployment plan\cfd_challenge_sweep.csv

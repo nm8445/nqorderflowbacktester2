@@ -77,6 +77,14 @@ FORCE_CLOSE_TIME = time(14, 45)
 HIGH_Z = 2.00
 ATR_SL_MULT = 2.0
 ATR_TP_MULT = 2.0
+# Max 20-min ATR(14) at entry (points). Since SL/TP = 2xATR, a blown-out ATR makes the $ bracket
+# explode. Set to 150 to skip ONLY the genuine crash-vol outliers: over 5yr that's just 2 trades
+# (2025-04-07 tariff crash ATR 280 / float $1,622, + 2025-04-04 ATR 168), net -$445 to remove, and it
+# cuts RV's worst float $1,622 -> $738/MNQ. NOTE: the prior ATR_MAX=70 was based on a BUGGY ATR calc
+# (entry times in ET compared vs UTC bar stamps undercounted ATR ~1.6x) -> it actually dropped 52
+# net-PROFITABLE trades. Corrected (UTC-consistent) ATR shows tightening below 150 removes profit for
+# zero extra float benefit. RV-only. See scripts/montecarlo/farm_firing_order.py + FUNDEDNEXT_ONESIDED.md.
+ATR_MAX = 150.0
 
 
 def in_session(t: time) -> bool:
@@ -93,12 +101,14 @@ class RVEngine:
                  high_z: float = HIGH_Z,
                  sl_mult: float = ATR_SL_MULT,
                  tp_mult: float = ATR_TP_MULT,
+                 atr_max: float = ATR_MAX,
                  window_n_ticks: int = WINDOW_N_TICKS,
                  window_d: float = WINDOW_D):
         self.features = RVFeatures(cfg or RVConfig())
         self.high_z = high_z
         self.sl_mult = sl_mult
         self.tp_mult = tp_mult
+        self.atr_max = atr_max
         self.window_n_ticks = window_n_ticks
         self.window_d = window_d
 
@@ -221,6 +231,9 @@ class RVEngine:
         if f.z_vol is None or f.z_vol <= self.high_z:
             return
         if f.atr is None or f.atr <= 0:
+            return
+        # Max-ATR filter: skip crash-vol entries whose 2xATR bracket would blow up the $ risk.
+        if f.atr > self.atr_max:
             return
         if f.ema is None or f.close is None:
             return

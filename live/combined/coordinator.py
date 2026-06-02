@@ -44,7 +44,10 @@ from typing import Callable, Optional
 from live.combined.config import STATE_DIR
 
 COORD_STATE_PATH = STATE_DIR / "coordinator_state.json"
+MARTI_STATE_PATH = STATE_DIR / "martingale_state.json"
 STATE_FRESH_SEC = 300   # only restore state if file < 5 min old
+# NOTE: marti state has NO freshness gate — it's valid until the next trade
+# fires (could be days later, especially across weekends/holidays).
 
 
 @dataclass
@@ -77,6 +80,30 @@ class Coordinator:
         if sig.event == "ENTRY":
             # Direction enum-or-string handling
             direction = sig.direction.name if hasattr(sig.direction, "name") else str(sig.direction)
+
+            # ===== MFFU news-blackout gate (per T1 rule: no entries ±2 min) =====
+            try:
+                from live.combined.news_blackout import is_in_blackout
+                in_bk, ev_name = is_in_blackout()
+                if in_bk:
+                    self.n_blocked += 1
+                    ts_str = (sig.timestamp.strftime("%Y-%m-%d %H:%M ET")
+                              if hasattr(sig.timestamp, "strftime") else str(sig.timestamp))
+                    print(f"  [COORD-NEWS-BLACKOUT] {strat_name} {direction} @ {sig.price:.2f}  "
+                          f"({ts_str}) — blocked by news window ({ev_name})")
+                    self.blocked_log.append({
+                        "ts": ts_str, "strat": strat_name, "direction": direction,
+                        "price": float(sig.price), "blocked_by": "news_blackout",
+                        "blocked_by_dir": ev_name,
+                    })
+                    engine = self._engines.get(strat_name)
+                    if engine is not None and hasattr(engine, "position"):
+                        engine.position = None
+                    return
+            except Exception as e:
+                # Fail-open: if blackout check fails for any reason, allow the
+                # signal through rather than block everything. Log loudly.
+                print(f"  [coord] news_blackout check error (allowing through): {e}")
 
             # Check every OTHER strategy's currently-open direction
             for other_strat, other_dir in self._open_dir.items():
@@ -117,6 +144,14 @@ class Coordinator:
             except Exception as e:
                 print(f"  [coord] downstream callback error in {strat_name}: {e}")
 
+        # After an EXIT, the engine just updated its martingale state — persist
+        # it so a restart preserves the correct size for the next trade.
+        if sig.event == "EXIT" and strat_name in ("OD", "B2"):
+            try:
+                self.save_marti_state()
+            except Exception as e:
+                print(f"  [coord] save_marti_state failed: {e}")
+
     # ============== state persistence ==============
 
     def save_state(self) -> None:
@@ -136,7 +171,13 @@ class Coordinator:
 
     def load_state(self) -> bool:
         """Restore coordinator state if file exists and is fresh.
-        Returns True if loaded, False if skipped (missing or stale)."""
+        Returns True if loaded, False if skipped (missing or stale).
+
+        CRITICAL: After loading, validates each open_dir entry against the
+        actual engine's `position` attribute. If an engine has no position
+        but state claims it's open, the stale entry is cleared. Prevents
+        phantom blocks after server restarts where positions were closed
+        externally (manual NT8/MT5 close) between shutdown and restart."""
         if not COORD_STATE_PATH.exists():
             return False
         try:
@@ -151,9 +192,79 @@ class Coordinator:
             self.n_blocked = int(state.get("n_blocked", 0))
             print(f"  [coord] restored state from {saved.isoformat()}Z  "
                   f"open_dir={self._open_dir}")
+
+            # Validate against actual engine state — clear phantom entries
+            cleared = []
+            for strat_name in list(self._open_dir.keys()):
+                engine = self._engines.get(strat_name)
+                if engine is None or getattr(engine, "position", None) is None:
+                    cleared.append((strat_name, self._open_dir[strat_name]))
+                    self._open_dir.pop(strat_name, None)
+            if cleared:
+                for strat_name, dir_ in cleared:
+                    print(f"  [coord] DESYNC FIX: state had {strat_name}={dir_} but "
+                          f"engine has no position — cleared (likely restart after external close)")
+                print(f"  [coord] open_dir after desync fix: {self._open_dir}")
             return True
         except Exception as e:
             print(f"  [coord] failed to load state: {e}")
+            return False
+
+    # ============== martingale state persistence ==============
+    # Separate from coordinator state because:
+    #   1. NO freshness gate — marti state stays valid across weekends/holidays.
+    #   2. Human-editable JSON so you can manually override before startup
+    #      (e.g., force B2 next_size=2 if you know last trade was a FC loss).
+
+    def save_marti_state(self) -> None:
+        """Write current OD/B2 martingale state to disk. Called after every
+        EXIT signal from those engines so the file is always fresh."""
+        state = {"saved_at": dt.datetime.utcnow().isoformat() + "Z"}
+        od = self._engines.get("OD")
+        if od is not None and hasattr(od, "_marti_state"):
+            state["OD"] = {
+                "marti_state": int(od._marti_state),
+                "_comment": "0=base(next 1c), 1=recovery(next 2c due), 2=cooldown(next forced 1c)",
+            }
+        b2 = self._engines.get("B2")
+        if b2 is not None and hasattr(b2, "_next_size"):
+            state["B2"] = {
+                "next_size": int(b2._next_size),
+                "_comment": "1=base, 2=martingale recovery after a FORCE_CLOSE loss",
+            }
+        MARTI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = MARTI_STATE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, indent=2))
+        tmp.replace(MARTI_STATE_PATH)
+
+    def load_marti_state(self) -> bool:
+        """Restore OD/B2 martingale state from disk. No freshness check.
+        Edit live/combined/state/martingale_state.json by hand to override
+        before starting the server. Returns True if a file was loaded."""
+        if not MARTI_STATE_PATH.exists():
+            print(f"  [coord] no marti state file at {MARTI_STATE_PATH.name} — engines start at base")
+            return False
+        try:
+            s = json.loads(MARTI_STATE_PATH.read_text())
+            if "OD" in self._engines and "OD" in s:
+                ms = int(s["OD"].get("marti_state", 0))
+                if ms not in (0, 1, 2):
+                    print(f"  [coord] invalid OD marti_state={ms}; using base 0")
+                    ms = 0
+                self._engines["OD"]._marti_state = ms
+                label = {0: "base(1c)", 1: "recovery(2c due)", 2: "cooldown(1c)"}[ms]
+                print(f"  [coord] OD marti_state restored = {ms} ({label})")
+            if "B2" in self._engines and "B2" in s:
+                ns = int(s["B2"].get("next_size", 1))
+                if ns not in (1, 2):
+                    print(f"  [coord] invalid B2 next_size={ns}; using base 1")
+                    ns = 1
+                self._engines["B2"]._next_size = ns
+                label = {1: "base", 2: "martingale recovery"}[ns]
+                print(f"  [coord] B2 next_size restored = {ns} ({label})")
+            return True
+        except Exception as e:
+            print(f"  [coord] failed to load marti state: {e} — engines start at base")
             return False
 
     def summary(self) -> dict:

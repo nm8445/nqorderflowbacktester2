@@ -1,0 +1,52 @@
+======================================================================
+COINFLIP / GAMBLER'S RUIN PAYOUT EXTRACTION SIM
+10 accounts max, 3 trades/day across all, $1500 risk/trade
+Lucid Flex 50K rules, stagger payouts ($1500 first / $1000 subsequent)
+Eval: $100, 30% pass rate, 3 days/attempt
+5000 sims over 252-day year
+======================================================================
+
+--- PURE coin flip (no friction) ---
+  win_prob = 50.00%, slippage per trade = $0
+  Mean gross cash:     $   46,028
+  Mean eval cost:      $   18,344  (183 evals/yr)
+  Mean NET cash:       $   27,684    (p25 $23,138 / p75 $32,450)
+  Mean #busts/yr:      56.5
+  Mean #payouts/yr:    41.2
+  Monthly mean NET:    $2,307
+
+--- Realistic 50/50 w/ $30 slip/trade ---
+  win_prob = 50.00%, slippage per trade = $30
+  Mean gross cash:     $   42,734
+  Mean eval cost:      $   24,336  (243 evals/yr)
+  Mean NET cash:       $   18,398    (p25 $12,950 / p75 $24,200)
+  Mean #busts/yr:      74.8
+  Mean #payouts/yr:    37.8
+  Monthly mean NET:    $1,533
+
+--- Slight edge 52/48 w/ $30 slip ---
+  win_prob = 52.00%, slippage per trade = $30
+  Mean gross cash:     $   46,634
+  Mean eval cost:      $   20,740  (207 evals/yr)
+  Mean NET cash:       $   25,894    (p25 $20,700 / p75 $31,300)
+  Mean #busts/yr:      63.8
+  Mean #payouts/yr:    42.2
+  Monthly mean NET:    $2,158
+
+--- Strong edge 55/45 w/ $30 slip ---
+  win_prob = 55.00%, slippage per trade = $30
+  Mean gross cash:     $   52,977
+  Mean eval cost:      $   16,297  (163 evals/yr)
+  Mean NET cash:       $   36,680    (p25 $31,750 / p75 $41,700)
+  Mean #busts/yr:      50.1
+  Mean #payouts/yr:    49.4
+  Monthly mean NET:    $3,057
+
+--- Reverse edge 48/52 w/ $30 slip ---
+  win_prob = 48.00%, slippage per trade = $30
+  Mean gross cash:     $   38,911
+  Mean eval cost:      $   28,245  (282 evals/yr)
+  Mean NET cash:       $   10,666    (p25 $5,088 / p75 $16,500)
+  Mean #busts/yr:      87.0
+  Mean #payouts/yr:    33.7
+  Monthly mean NET:    $889
