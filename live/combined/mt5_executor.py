@@ -67,6 +67,16 @@ DEFAULT_SL_PTS = {"OD": 600.0, "B2": 600.0, "RV": 200.0, "FB": 150.0}
 
 # Magic numbers per strategy (for filtering positions in MT5 audit)
 MAGIC = {"OD": 30001, "B2": 30002, "RV": 30003, "FB": 30004}
+# A rejected MT5 close (transient 10013 "Invalid request" / connection blip) is re-enqueued after a
+# delay instead of requiring a manual flatten. Total tries = MAX_CLOSE_RETRIES (1 initial + retries).
+MAX_CLOSE_RETRIES = 5
+CLOSE_RETRY_DELAY_SEC = 45.0
+
+# Periodic reconcile: drop a tracked position that no longer exists on MT5 (manual flatten, broker
+# SL/TP fill, or a close that ultimately succeeded) so stale _open self-heals WITHOUT a restart.
+# Only prunes strats with no matching live magic, and skips entries younger than the grace window
+# so a just-sent fill isn't pruned before positions_get() can see it.
+RECONCILE_GRACE_SEC = 90.0
 
 HEARTBEAT_INTERVAL_SEC = 30
 
@@ -217,6 +227,31 @@ class MT5Executor:
         except Exception as e:
             print(f"[mt5][{self.firm_label}] resync EXCEPTION: {e}")
 
+    def _reconcile_open_positions(self) -> None:
+        """Drop any tracked position that no longer exists on MT5 (manual flatten, broker-side
+        SL/TP fill, or a close that ultimately succeeded). Self-heals the stale-_open bug without a
+        restart. Only prunes strats with NO matching live magic (so a genuinely-open position, even
+        one mid-close, is never touched) and skips entries younger than RECONCILE_GRACE_SEC (so a
+        freshly-sent fill isn't pruned before it appears in positions_get())."""
+        try:
+            positions = mt5.positions_get(symbol=self.contract) or []
+        except Exception as e:
+            print(f"[mt5][{self.firm_label}] reconcile EXCEPTION: {e}")
+            return
+        live_magics = {p.magic for p in positions}
+        now = pd.Timestamp.now(tz=ET_TZ)
+        with self._lock:
+            for strat in list(self._open.keys()):
+                if MAGIC.get(strat) in live_magics:
+                    continue                       # genuinely open on MT5
+                pos = self._open[strat]
+                age = (now - pos.entry_ts).total_seconds()
+                if age < RECONCILE_GRACE_SEC:
+                    continue                       # too fresh — fill may not be visible yet
+                self._open.pop(strat, None)
+                print(f"[mt5][{self.firm_label}] RECONCILE: dropped stale {strat} "
+                      f"(no live position, age {age:.0f}s, ticket={pos.ticket}) -> entries unblocked")
+
     # ---------- low-level order sending ----------
 
     def _send_entry(self, strat: str, direction: str,
@@ -366,7 +401,7 @@ class MT5Executor:
                 pass
         return 0
 
-    def _close_strategy(self, strat: str, reason: str = "") -> bool:
+    def _close_strategy(self, strat: str, reason: str = "", attempt: int = 0) -> bool:
         with self._lock:
             pos = self._open.pop(strat, None)
         if pos is None:
@@ -424,23 +459,45 @@ class MT5Executor:
             rtt_ms = (time.perf_counter() - t0) * 1000
             if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
                 rc = getattr(res, "retcode", -1) if res else -1
-                msg = getattr(res, "comment", str(mt5.last_error())) if res else str(mt5.last_error())
-                print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] FAIL retcode={rc} {msg}")
+                msg = getattr(res, "comment", "") if res else ""
+                last_err = mt5.last_error()   # (code, text) — the REAL reason behind a generic reject
+                print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] FAIL retcode={rc} '{msg}' "
+                      f"last_error={last_err} (attempt {attempt})")
                 self.n_errors += 1
-                # Put back in tracking — close didn't go through
+                # Put back in tracking so the scheduled retry can find the position.
                 with self._lock:
                     self._open[strat] = pos
+                self._schedule_close_retry(strat, reason, attempt)
                 return False
             self.n_exits_sent += 1
             print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] OK reason={reason} "
                   f"@ {res.price:.2f} rtt={rtt_ms:.0f}ms")
             return True
         except Exception as e:
-            print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] EXCEPTION: {e}")
+            print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] EXCEPTION: {e} (attempt {attempt})")
             self.n_errors += 1
             with self._lock:
                 self._open[strat] = pos
+            self._schedule_close_retry(strat, reason, attempt)
             return False
+
+    def _schedule_close_retry(self, strat: str, reason: str, attempt: int) -> None:
+        """Re-enqueue a failed close after a delay so transient rejects (10013 / connection blips)
+        self-heal without a manual flatten. After MAX_CLOSE_RETRIES total tries, alert loudly."""
+        if self._stop_event.is_set():
+            return
+        nxt = attempt + 1
+        if nxt >= MAX_CLOSE_RETRIES:
+            print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] *** {MAX_CLOSE_RETRIES} CLOSE ATTEMPTS "
+                  f"FAILED — MANUAL FLATTEN REQUIRED *** reason={reason} tag="
+                  f"{getattr(self._open.get(strat), 'customTag', '?')}")
+            return
+        print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] retry in {CLOSE_RETRY_DELAY_SEC:.0f}s "
+              f"(next attempt {nxt}/{MAX_CLOSE_RETRIES - 1})")
+        t = threading.Timer(CLOSE_RETRY_DELAY_SEC,
+                            lambda: self._enqueue(("CLOSE", strat, reason, nxt)))
+        t.daemon = True
+        t.start()
 
     # ---------- engine wiring ----------
 
@@ -519,8 +576,9 @@ class MT5Executor:
                         self._send_entry(strat, direction, sl_price=sl_price, tp_price=tp_price,
                                           entry_ts=entry_ts, signal_entry_price=signal_entry_price)
                     elif kind == "CLOSE":
-                        _, strat, reason = item
-                        self._close_strategy(strat, reason)
+                        strat, reason = item[1], item[2]
+                        attempt = item[3] if len(item) > 3 else 0   # retry count (0 = first try)
+                        self._close_strategy(strat, reason, attempt)
                     elif kind == "UNTRACK":
                         # B2 TP_FIXED used to do this inline; preserve behavior off-thread
                         _, strat = item
@@ -576,6 +634,7 @@ class MT5Executor:
                             print(f"[mt5][{self.firm_label}] WARN terminal not connected")
                     except Exception:
                         pass
+                    self._reconcile_open_positions()   # self-heal stale tracked positions
                 self.n_heartbeats += 1
                 self._stop_event.wait(HEARTBEAT_INTERVAL_SEC)
             print(f"[mt5][{self.firm_label}] heartbeat thread stopped")
