@@ -4,19 +4,22 @@
 // production single-account addon (NQMultiStratReceiver, :8081) so testing never touches
 // live phase-1 money. See live/farm/TEST_ADDON_SPEC.md for the full design.
 //
-// PHASE 0 (this file): GET /accounts only — the equity SOURCE the brains' sync_accounts()
-// consumes, and the one thing we must validate live (which field the firm's trailing DD
-// keys off). No order routing yet; that's Phase 1 (POST /order + /close behind a whitelist).
+// PHASE 1: GET /accounts (equity source) + POST /order, /close per-account behind a HARD WHITELIST.
+// Orders/closes ONLY ever touch accounts in `orderWhitelist` (the sims). MFF funded + live account are
+// readable via /accounts but can NEVER be traded — they are not in the whitelist, so /order rejects them.
 //
 // HTTP endpoints:
-//   GET /accounts             — every NT8 account: name, cash (CashValue), unrealized, netliq, positions
-//   GET /account_dump?name=X  — EVERY AccountItem for one account (diagnostic: is the trailing DD readable?)
-//   GET /status               — server diagnostic
+//   GET  /accounts             — every NT8 account: name, cash, unrealized, netliq, dd, positions
+//   GET  /account_dump?name=X  — EVERY AccountItem for one account (diagnostic)
+//   POST /order                — {account, strat, direction, qty, slPrice?, tpPrice?, instrument?, tag?}
+//   POST /close                — {account, tag, reason?}
+//   GET  /status               — server diagnostic
 //
 // Install: copy to Documents\NinjaTrader 8\bin\Custom\AddOns\, compile, then
 // Control Center -> New -> Add-On -> "NQ Multi-Strat Receiver (TEST)", press Start.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -52,6 +55,26 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Button stopButton;
         private ListBox logListBox;
         private Timer uiTimer;
+
+        // ============== Phase 1: order execution (HARD WHITELIST) ==============
+        // Orders/closes only ever touch these accounts. Edit to match your NT8 sim names EXACTLY.
+        // MFF funded + live account are deliberately absent -> /order and /close reject them.
+        private readonly HashSet<string> orderWhitelist = new HashSet<string>
+        {
+            "SimEval1", "SimEval2", "SimEval3", "SimEval4", "SimEval5"
+        };
+        private string instrumentName = "MNQ 06-26";   // default order instrument (sizer works in MNQ)
+
+        private class TaggedPosition
+        {
+            public string Account, Tag, Strat, Direction;
+            public int Quantity;
+            public Order EntryOrder, StopOrder, TargetOrder;
+            public DateTime EntryTime;
+        }
+        // keyed by "account|tag" so one signal copied across accounts tracks separately
+        private ConcurrentDictionary<string, TaggedPosition> openPositions =
+            new ConcurrentDictionary<string, TaggedPosition>();
 
         protected override void OnStateChange()
         {
@@ -155,7 +178,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                     startButton.IsEnabled = false;
                     stopButton.IsEnabled = true;
                 }));
-                Log($"TEST server started on port {serverPort} (GET /accounts, /status)");
+                string wl = string.Join(", ", orderWhitelist);
+                Log($"TEST server started on :{serverPort} - GET /accounts, POST /order + /close (whitelist: {wl})");
             }
             catch (Exception ex)
             {
@@ -219,7 +243,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (method == "GET" && path == "/status")
                 {
                     SendJson(ctx, $"{{\"running\":{isRunning.ToString().ToLower()},\"port\":{serverPort}," +
-                                  $"\"phase\":\"0 (accounts only)\"}}");
+                                  $"\"phase\":\"1 (orders, whitelisted)\",\"open_positions\":{openPositions.Count}}}");
+                    return;
+                }
+                if (method == "POST" && (path == "/order" || path == "/close" || path == "/flatten"))
+                {
+                    string body;
+                    using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
+                        body = reader.ReadToEnd();
+                    string resp = path == "/order" ? HandleOrder(body)
+                                : path == "/close" ? HandleClose(body)
+                                : HandleFlatten(body);
+                    SendJson(ctx, resp);
                     return;
                 }
                 ctx.Response.StatusCode = 404;
@@ -346,6 +381,202 @@ namespace NinjaTrader.NinjaScript.AddOns
             ctx.Response.ContentLength64 = bytes.Length;
             ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
             ctx.Response.Close();
+        }
+
+        // ============== Phase 1: order execution ==============
+        // Minimal flat-JSON parser (matches the production addon style — no Newtonsoft dependency).
+        private Dictionary<string, string> ParseJson(string json)
+        {
+            var d = new Dictionary<string, string>();
+            if (string.IsNullOrWhiteSpace(json)) return d;
+            json = json.Trim().Trim('{', '}');
+            foreach (string pair in json.Split(','))
+            {
+                string[] kv = pair.Split(new[] { ':' }, 2);
+                if (kv.Length == 2)
+                    d[kv[0].Trim().Trim('"', ' ')] = kv[1].Trim().Trim('"', ' ');
+            }
+            return d;
+        }
+
+        // POST /order — place a MARKET entry (+ optional OCO SL/TP) on ONE whitelisted account.
+        private string HandleOrder(string body)
+        {
+            var p = ParseJson(body);
+            string account = p.ContainsKey("account") ? p["account"] : "";
+            string strat = p.ContainsKey("strat") ? p["strat"] : "";
+            string direction = p.ContainsKey("direction") ? p["direction"].ToUpper() : "";
+            int qty = 0;
+            int.TryParse(p.ContainsKey("qty") ? p["qty"] : (p.ContainsKey("quantity") ? p["quantity"] : "0"), out qty);
+            string tag = p.ContainsKey("tag") ? p["tag"] : $"{strat}_{DateTime.Now:yyyyMMdd_HHmmss}_{direction}";
+
+            // ---- HARD WHITELIST GATE ----
+            if (!orderWhitelist.Contains(account))
+            {
+                Log($"REJECT order: '{account}' NOT whitelisted (tag {tag})");
+                return $"{{\"ok\":false,\"error\":\"account not whitelisted\",\"account\":\"{Esc(account)}\"}}";
+            }
+            if (direction != "LONG" && direction != "SHORT") return "{\"ok\":false,\"error\":\"bad direction\"}";
+            if (qty < 1) return "{\"ok\":false,\"error\":\"bad qty\"}";
+
+            Account acct;
+            lock (Account.All) { acct = Account.All.FirstOrDefault(a => a.Name == account); }
+            if (acct == null) return $"{{\"ok\":false,\"error\":\"account not found\",\"account\":\"{Esc(account)}\"}}";
+
+            string instrName = p.ContainsKey("instrument") ? p["instrument"] : instrumentName;
+            var instrument = Instrument.GetInstrument(instrName);
+            if (instrument == null) return $"{{\"ok\":false,\"error\":\"instrument not found: {Esc(instrName)}\"}}";
+
+            OrderAction oaEntry = direction == "LONG" ? OrderAction.Buy : OrderAction.SellShort;
+            OrderAction oaExit  = direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
+            bool hasStop = p.ContainsKey("slprice") || p.ContainsKey("slPrice");
+            bool hasTgt  = p.ContainsKey("tpprice") || p.ContainsKey("tpPrice");
+            Func<string, double> getPx = k => double.Parse(p.ContainsKey(k) ? p[k] : p[k.ToLower()],
+                                                           System.Globalization.CultureInfo.InvariantCulture);
+
+            var pos = new TaggedPosition { Account = account, Tag = tag, Strat = strat,
+                                           Direction = direction, Quantity = qty, EntryTime = DateTime.Now };
+            try
+            {
+                pos.EntryOrder = acct.CreateOrder(instrument, oaEntry, OrderType.Market, OrderEntry.Manual,
+                    TimeInForce.Day, qty, 0, 0, "", tag + "_E", DateTime.MaxValue, null);
+                acct.Submit(new[] { pos.EntryOrder });
+
+                if (hasStop || hasTgt)
+                {
+                    string ocoId = (hasStop && hasTgt) ? (tag + "_OCO") : "";
+                    if (hasTgt)
+                    {
+                        double tp = getPx("tpPrice");
+                        pos.TargetOrder = acct.CreateOrder(instrument, oaExit, OrderType.Limit, OrderEntry.Manual,
+                            TimeInForce.Day, qty, tp, 0, ocoId, tag + "_T", DateTime.MaxValue, null);
+                        acct.Submit(new[] { pos.TargetOrder });
+                    }
+                    if (hasStop)
+                    {
+                        double sl = getPx("slPrice");
+                        pos.StopOrder = acct.CreateOrder(instrument, oaExit, OrderType.StopMarket, OrderEntry.Manual,
+                            TimeInForce.Day, qty, 0, sl, ocoId, tag + "_S", DateTime.MaxValue, null);
+                        acct.Submit(new[] { pos.StopOrder });
+                    }
+                }
+                openPositions[account + "|" + tag] = pos;
+                Log($"ORDER {account} {strat} {direction} x{qty} {instrName} sl={hasStop} tp={hasTgt} tag={tag}");
+                return $"{{\"ok\":true,\"account\":\"{Esc(account)}\",\"tag\":\"{Esc(tag)}\"}}";
+            }
+            catch (Exception ex)
+            {
+                Log($"ORDER ERROR {account} {tag}: {ex.Message}");
+                return $"{{\"ok\":false,\"error\":\"{Esc(ex.Message)}\"}}";
+            }
+        }
+
+        // POST /close — flatten a tagged position on ONE whitelisted account.
+        private string HandleClose(string body)
+        {
+            var p = ParseJson(body);
+            string account = p.ContainsKey("account") ? p["account"] : "";
+            string tag = p.ContainsKey("tag") ? p["tag"] : null;
+            string reason = p.ContainsKey("reason") ? p["reason"] : "";
+
+            if (!orderWhitelist.Contains(account))
+            {
+                Log($"REJECT close: '{account}' NOT whitelisted");
+                return $"{{\"ok\":false,\"error\":\"account not whitelisted\"}}";
+            }
+            TaggedPosition pos = null;
+            if (tag != null) openPositions.TryGetValue(account + "|" + tag, out pos);
+            if (pos == null)
+            {
+                // Tracking lost (e.g. addon recompiled mid-trade). Don't strand the position —
+                // fall back to flattening the account (safe: it's whitelisted = farm-only).
+                Log($"CLOSE {account} {tag}: not tracked -> flatten-by-account fallback");
+                return FlattenAccount(account, reason + " (untracked)");
+            }
+            return CloseTaggedPosition(pos, reason);
+        }
+
+        // POST /flatten — close whatever position the (whitelisted) account holds, tracked or not.
+        private string HandleFlatten(string body)
+        {
+            var p = ParseJson(body);
+            string account = p.ContainsKey("account") ? p["account"] : "";
+            if (!orderWhitelist.Contains(account))
+            {
+                Log($"REJECT flatten: '{account}' NOT whitelisted");
+                return "{\"ok\":false,\"error\":\"account not whitelisted\"}";
+            }
+            return FlattenAccount(account, p.ContainsKey("reason") ? p["reason"] : "manual");
+        }
+
+        private string FlattenAccount(string accountName, string reason)
+        {
+            Account acct;
+            lock (Account.All) { acct = Account.All.FirstOrDefault(a => a.Name == accountName); }
+            if (acct == null) return "{\"ok\":false,\"error\":\"account not found\"}";
+            var instrument = Instrument.GetInstrument(instrumentName);
+            try
+            {
+                var bp = acct.Positions.FirstOrDefault(x => x.Instrument == instrument);
+                if (bp == null || bp.MarketPosition == MarketPosition.Flat)
+                    return "{\"ok\":true,\"note\":\"already flat\"}";
+                foreach (var o in acct.Orders.ToList())          // cancel orphan SL/TP for this instrument
+                    if (o.Instrument == instrument && o.OrderState == OrderState.Working) acct.Cancel(new[] { o });
+                OrderAction oa = bp.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.BuyToCover;
+                var co = acct.CreateOrder(instrument, oa, OrderType.Market, OrderEntry.Manual, TimeInForce.Day,
+                    bp.Quantity, 0, 0, "", "FLATTEN_" + DateTime.Now.ToString("HHmmss"), DateTime.MaxValue, null);
+                acct.Submit(new[] { co });
+                foreach (var k in openPositions.Keys.Where(k => k.StartsWith(accountName + "|")).ToList())
+                    openPositions.TryRemove(k, out _);
+                Log($"FLATTEN {accountName} {bp.MarketPosition} x{bp.Quantity} reason={reason}");
+                return $"{{\"ok\":true,\"note\":\"flattened\",\"qty\":{bp.Quantity}}}";
+            }
+            catch (Exception ex)
+            {
+                Log($"FLATTEN ERROR {accountName}: {ex.Message}");
+                return $"{{\"ok\":false,\"error\":\"{Esc(ex.Message)}\"}}";
+            }
+        }
+
+        private string CloseTaggedPosition(TaggedPosition pos, string reason)
+        {
+            Account acct;
+            lock (Account.All) { acct = Account.All.FirstOrDefault(a => a.Name == pos.Account); }
+            if (acct == null) return "{\"ok\":false,\"error\":\"account not found\"}";
+            var instrument = pos.EntryOrder?.Instrument ?? Instrument.GetInstrument(instrumentName);
+            try
+            {
+                // Cancel OCO siblings so they can't fire after the manual exit.
+                if (pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working) acct.Cancel(new[] { pos.StopOrder });
+                if (pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working) acct.Cancel(new[] { pos.TargetOrder });
+
+                // Safety: only send an exit if the broker actually holds the position in our direction
+                // (else a market exit would OPEN a new opposite trade). Mirrors the production addon.
+                var brokerPos = acct.Positions.FirstOrDefault(x => x.Instrument == instrument);
+                MarketPosition side = brokerPos == null ? MarketPosition.Flat : brokerPos.MarketPosition;
+                int brokerQty = brokerPos == null ? 0 : brokerPos.Quantity;
+                MarketPosition expected = pos.Direction == "LONG" ? MarketPosition.Long : MarketPosition.Short;
+                if (side != expected || brokerQty == 0)
+                {
+                    Log($"CLOSE ABORTED {pos.Account} {pos.Tag}: broker {side} qty {brokerQty} vs tracked {pos.Direction} — untracking only");
+                    openPositions.TryRemove(pos.Account + "|" + pos.Tag, out _);
+                    return $"{{\"ok\":true,\"note\":\"already flat / external close\",\"tag\":\"{Esc(pos.Tag)}\"}}";
+                }
+
+                int closeQty = Math.Min(pos.Quantity, brokerQty);
+                OrderAction oa = pos.Direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
+                var closeOrder = acct.CreateOrder(instrument, oa, OrderType.Market, OrderEntry.Manual,
+                    TimeInForce.Day, closeQty, 0, 0, "", pos.Tag + "_X", DateTime.MaxValue, null);
+                acct.Submit(new[] { closeOrder });
+                openPositions.TryRemove(pos.Account + "|" + pos.Tag, out _);
+                Log($"CLOSE {pos.Account} {pos.Tag} reason={reason} qty={closeQty}");
+                return $"{{\"ok\":true,\"tag\":\"{Esc(pos.Tag)}\"}}";
+            }
+            catch (Exception ex)
+            {
+                Log($"CLOSE ERROR {pos.Account} {pos.Tag}: {ex.Message}");
+                return $"{{\"ok\":false,\"error\":\"{Esc(ex.Message)}\"}}";
+            }
         }
 
         // Live UI snapshot of accounts (every 3s) so you can eyeball it without curl.

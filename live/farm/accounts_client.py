@@ -15,6 +15,9 @@ import urllib.request
 
 URL = "http://localhost:8082/accounts"
 DUMP_URL = "http://localhost:8082/account_dump"
+ORDER_URL = "http://localhost:8082/order"
+CLOSE_URL = "http://localhost:8082/close"
+FLATTEN_URL = "http://localhost:8082/flatten"
 
 # --- which accounts to show ---------------------------------------------------------------------
 # NT8's Account.All includes every dead/old account ever added, and a FRESH account reads $0 just
@@ -64,9 +67,45 @@ def dump_account(name: str) -> None:
           "(balance - $2,000-ish). If none match, NT8 doesn't expose it -> we compute it.")
 
 
+def _post(url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=5.0) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def place_order(account: str, direction: str, qty, sl=None, tp=None) -> None:
+    """python accounts_client.py order <account> <LONG|SHORT> <qty> [slPrice] [tpPrice]"""
+    p = {"account": account, "strat": "TEST", "direction": direction.upper(), "qty": int(qty)}
+    if sl:
+        p["slPrice"] = float(sl)
+    if tp:
+        p["tpPrice"] = float(tp)
+    print("ORDER ->", _post(ORDER_URL, p))
+
+
+def close_order(account: str, tag: str) -> None:
+    """python accounts_client.py close <account> <tag>"""
+    print("CLOSE ->", _post(CLOSE_URL, {"account": account, "tag": tag, "reason": "manual"}))
+
+
+def flatten_account(account: str) -> None:
+    """python accounts_client.py flatten <account>   (closes whatever the account holds, tag or not)"""
+    print("FLATTEN ->", _post(FLATTEN_URL, {"account": account, "reason": "manual"}))
+
+
 def main() -> None:
     if len(sys.argv) >= 3 and sys.argv[1] == "dump":   # python accounts_client.py dump <ACCOUNT_NAME>
         dump_account(sys.argv[2])
+        return
+    if len(sys.argv) >= 5 and sys.argv[1] == "order":  # order <account> <LONG|SHORT> <qty> [sl] [tp]
+        place_order(*sys.argv[2:])
+        return
+    if len(sys.argv) >= 4 and sys.argv[1] == "close":  # close <account> <tag>
+        close_order(sys.argv[2], sys.argv[3])
+        return
+    if len(sys.argv) >= 3 and sys.argv[1] == "flatten":  # flatten <account>
+        flatten_account(sys.argv[2])
         return
     try:
         while True:
