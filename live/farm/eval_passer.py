@@ -1,0 +1,230 @@
+"""Eval-passer farm — the BACKEND BRAIN for CHALLENGE accounts (lead + copy rotation).
+
+Sibling to funded_state_machine.py. Pure Python, no NT8/MT5 deps, sim-testable. The funded brain
+spends its de-correlation budget on the gamble; the eval brain does the opposite — it COPIES each
+signal across accounts for throughput, because evals are cheap and the only cost of correlation is
+lumpier (not lower) pass counts (see scripts/futurespropmc/eval_rotation_sim.py).
+
+STATES (per account)
+  FRESH   flat, never started   -> waits to be promoted as a lead
+  ACTIVE  trading today, has buffer -> copies every signal until it resolves
+  DONE    hit the daily cap (+$1,500 / +$1,200) today -> sits out the rest of the day
+  BLOWN   equity <= trailing floor (-$2k)
+  PASSED  total >= +$3,000 -> handed off to the funded farm
+
+ROTATION (per signal)
+  • promote up to `copies` FRESH accounts -> ACTIVE (the leads); copies=1 (<=20 evals) or 2 (>20)
+  • copy the signal onto EVERY ACTIVE account that still has buffer
+  • an ACTIVE account keeps copying until DONE (daily cap) or BLOWN; at end-of-day DONE/ACTIVE resume
+    ACTIVE for tomorrow with the daily tally reset. Pass = +$3k total without a day exceeding the cap.
+
+EQUITY FIELDS (from NT8, validated live later): cash=CashValue (realized, EOD/pass), equity=NetLiq
+(floor/blow). Trailing-then-lock floor = min($50k, peak_equity − $2k).
+
+Run `python live/farm/eval_passer.py` for a quick hand-crafted demo of the transitions; see
+sim_eval_passer.py to run a pool of accounts on real outcomes with per-account state prints.
+"""
+from __future__ import annotations
+import re
+from collections import Counter
+from dataclasses import dataclass
+from datetime import date
+from enum import Enum
+
+START = 50_000.0
+DD = 2_000.0
+LOCK_BUFFER = 100.0      # floor locks at start_bal + this once up (DD + buffer) at EOD
+TARGET = 3_000.0
+DAY_CAP_50 = 1_500.0     # 50%-consistency firm: max profit bankable per day
+DAY_CAP_40 = 1_200.0     # 40%-consistency firm
+
+
+class EState(Enum):
+    FRESH = "FRESH"
+    ACTIVE = "ACTIVE"
+    DONE = "DONE"
+    BLOWN = "BLOWN"
+    PASSED = "PASSED"
+
+
+@dataclass
+class EvalAccount:
+    id: str
+    state: EState = EState.FRESH
+    start_bal: float = START
+    dd: float = DD                   # per-account trailing distance (sim)
+    dd_remaining: float | None = None  # LIVE remaining DD from NT8 (TrailingMaxDrawdown); None -> compute
+    peak_balance: float = START      # high-water of EOD realized BALANCE -> trailing floor basis (sim)
+    cash: float = START
+    equity: float = START
+    day_profit: float = 0.0          # realized P&L banked TODAY (executor caps it at the daily cap)
+
+    @property
+    def total(self) -> float:
+        return self.cash - self.start_bal
+
+    @property
+    def floor(self) -> float:
+        # LIVE: kill level = equity - NT8's remaining DD. SIM: computed EOD-trailing floor.
+        if self.dd_remaining is not None:
+            return self.equity - self.dd_remaining
+        return min(self.start_bal + LOCK_BUFFER, self.peak_balance - self.dd)
+
+    @property
+    def buffer(self) -> float:
+        if self.dd_remaining is not None:
+            return max(0.0, self.dd_remaining)
+        return max(0.0, self.equity - self.floor)
+
+
+@dataclass
+class Route:
+    account_id: str
+    strat: str
+    intent: str          # "EVAL"
+    size_hint: str       # "risk~$<day_cap>"  (1:1 bracket sized to the daily cap)
+
+
+class EvalFarm:
+    def __init__(self, copies: int = 1, day_cap: float = DAY_CAP_50,
+                 eval_pattern: str | None = None, quiet: bool = False):
+        self.accounts: dict[str, EvalAccount] = {}
+        self.copies = copies                 # fresh leads promoted per signal (your copy-2-above-20 rule)
+        self.day_cap = day_cap
+        self.eval_re = re.compile(eval_pattern) if eval_pattern else None
+        self.quiet = quiet
+        self.passed_ids: list[str] = []       # -> hand these to the funded farm
+        self.blown_ids: list[str] = []
+        self.log: list[str] = []
+
+    # -- ingest /accounts snapshot --------------------------------------------------------------
+    def sync_accounts(self, snapshot: dict[str, dict]) -> list[str]:
+        """Add newly-appeared eval accounts as FRESH; update equity/peak/floor; flag BLOWN (equity
+        breached the floor) and PASSED (total >= +$3k). Returns new ids."""
+        added: list[str] = []
+        for aid, m in snapshot.items():
+            if self.eval_re and not self.eval_re.match(aid):
+                continue
+            a = self.accounts.get(aid)
+            if a is None:
+                a = EvalAccount(id=aid, start_bal=m["cash"], peak_balance=m["cash"],
+                                cash=m["cash"], equity=m["equity"], dd_remaining=m.get("dd"))
+                self.accounts[aid] = a
+                added.append(aid)
+                self._say(f"+ new eval {aid} -> FRESH (bal ${m['cash']:,.0f})")
+                continue
+            if a.state in (EState.BLOWN, EState.PASSED):
+                continue
+            a.cash, a.equity = m["cash"], m["equity"]
+            if "dd" in m:
+                a.dd_remaining = m["dd"]      # live remaining DD (NT8 TrailingMaxDrawdown)
+            if a.equity <= a.floor + 1e-9:
+                self._blow(a)
+            elif a.total >= TARGET:
+                self._pass(a)
+        return added
+
+    # -- route one signal: leads + copy --------------------------------------------------------
+    def route_signal(self, strat: str, today: date) -> list[Route]:
+        promoted = 0
+        for a in self.accounts.values():                      # promote `copies` fresh leads
+            if promoted >= self.copies:
+                break
+            if a.state is EState.FRESH:
+                a.state = EState.ACTIVE
+                promoted += 1
+                self._say(f"{a.id}: FRESH -> ACTIVE (lead on {strat})")
+        takers = [a for a in self.accounts.values()           # copy onto every active w/ buffer
+                  if a.state is EState.ACTIVE and a.buffer > 0]
+        if takers:
+            self._say(f"route {strat}: copied to {len(takers)} active acct(s)")
+        return [Route(a.id, strat, "EVAL", f"risk~${self.day_cap:,.0f}") for a in takers]
+
+    # -- a copied position closed --------------------------------------------------------------
+    def on_position_closed(self, account_id: str, strat: str, realized_pnl: float) -> None:
+        """Add the realized result to today's tally; flag DONE at the daily cap. BLOWN/PASSED are
+        decided in sync_accounts off equity/total (call sync with the post-close snapshot first)."""
+        a = self.accounts.get(account_id)
+        if a is None or a.state is not EState.ACTIVE:
+            return
+        a.day_profit += realized_pnl
+        if a.day_profit >= self.day_cap - 1e-9:
+            a.state = EState.DONE
+            self._say(f"{a.id}: daily cap (+${a.day_profit:,.0f}) -> DONE for the day")
+
+    # -- end of day: DONE/ACTIVE resume tomorrow -----------------------------------------------
+    def end_of_day(self, today: date) -> None:
+        for a in self.accounts.values():
+            if a.state in (EState.BLOWN, EState.PASSED):
+                continue
+            if a.cash > a.peak_balance:          # EOD trailing ratchet (realized closing balance)
+                a.peak_balance = a.cash
+            if a.state in (EState.DONE, EState.ACTIVE):
+                a.state = EState.ACTIVE
+                a.day_profit = 0.0
+
+    # -- transitions / helpers -----------------------------------------------------------------
+    def _blow(self, a: EvalAccount) -> None:
+        a.state = EState.BLOWN
+        self.blown_ids.append(a.id)
+        self._say(f"{a.id}: BLOWN (total ${a.total:,.0f})")
+
+    def _pass(self, a: EvalAccount) -> None:
+        a.state = EState.PASSED
+        self.passed_ids.append(a.id)
+        self._say(f"{a.id}: PASSED (total ${a.total:,.0f}) -> handoff to funded farm")
+
+    def _say(self, msg: str) -> None:
+        self.log.append(msg)
+        if not self.quiet:
+            print(f"  {msg}")
+
+    def counts(self) -> Counter:
+        return Counter(a.state.value for a in self.accounts.values())
+
+    def state_table(self) -> str:
+        order = {EState.ACTIVE: 0, EState.DONE: 1, EState.FRESH: 2, EState.PASSED: 3, EState.BLOWN: 4}
+        rows = []
+        for a in sorted(self.accounts.values(), key=lambda x: (order[x.state], x.id)):
+            rows.append(f"    {a.id:>6}  {a.state.value:<7}  total ${a.total:>+8,.0f}  "
+                        f"today ${a.day_profit:>+7,.0f}  buffer ${a.buffer:>6,.0f}")
+        return "\n".join(rows)
+
+
+# ============================ quick hand-crafted transition demo =============================
+def _demo() -> None:
+    from datetime import timedelta
+    print("EVAL FARM demo: lead+copy rotation, 3 accounts, daily cap $1,500\n")
+    farm = EvalFarm(copies=1)
+    d = date(2026, 6, 4)
+    farm.sync_accounts({f"E{i}": {"cash": START, "equity": START} for i in (1, 2, 3)})
+
+    def signal(strat, outcomes):
+        """outcomes: {acct_id: pnl}; routes the signal then applies each close."""
+        routes = farm.route_signal(strat, d)
+        for r in routes:
+            pnl = outcomes.get(r.account_id, 0.0)
+            a = farm.accounts[r.account_id]
+            cap = min(pnl, farm.day_cap - a.day_profit) if pnl > 0 else pnl
+            new_cash = a.cash + cap
+            farm.sync_accounts({r.account_id: {"cash": new_cash, "equity": new_cash}})
+            farm.on_position_closed(r.account_id, strat, cap)
+
+    print(f"[{d}] OD fires -> E1 leads; E1 wins the cap")
+    signal("OD", {"E1": +1500})
+    print(f"[{d}] RV fires -> E2 leads; E1 is DONE so only E2 takes it; E2 loses $1,500")
+    signal("RV", {"E2": -1500})
+    print(f"[{d}] B2 fires -> E3 leads; E2 (active, $500 buffer) copies; both lose")
+    signal("B2", {"E2": -500, "E3": -800})
+    print(f"   E2 blows (buffer gone); E3 survives\n   state:\n{farm.state_table()}")
+    farm.end_of_day(d)
+
+    d += timedelta(days=1)
+    print(f"\n[{d}] new day — E1 resumes (needs +$1,500 more to pass), E3 continues")
+    signal("OD", {"E1": +1500, "E3": +900})
+    print(f"   E1 hits +$3,000 total -> PASSED\n   state:\n{farm.state_table()}")
+    print(f"\n   counts: {dict(farm.counts())}   passed -> {farm.passed_ids}")
+
+
+if __name__ == "__main__":
+    _demo()
