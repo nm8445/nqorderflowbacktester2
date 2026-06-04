@@ -22,7 +22,7 @@ DUMP_URL = "http://localhost:8082/account_dump"
 # "current" from "old". The only reliable filter is an explicit list of the exact accounts you're
 # using now — i.e. the account registry the farm needs anyway. Add a new eval's id when you buy it,
 # remove one when you're done. Empty list = show everything (so you can find new ids).
-ALLOW: list[str] = ["MFFUSFFLX606768002", "1422474"]   # funded 50k + live; add evals as you buy them
+ALLOW: list[str] = ["SimEval1", "SimEval2","SimEval3","SimEval4","SimEval5"]   # funded 50k + live; add evals as you buy them
 
 
 def fetch_accounts(url: str = URL, timeout: float = 3.0) -> list[dict]:
