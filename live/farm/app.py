@@ -10,6 +10,7 @@ Pure stdlib (no FastAPI/npm). Run:  python live/farm/app.py   then open  http://
 """
 from __future__ import annotations
 import json
+import os
 import threading
 import time
 from datetime import datetime
@@ -20,9 +21,10 @@ from eval_passer import EvalFarm
 
 APP_PORT = 8090
 POLL_SEC = 3.0
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "eval_farm_state.json")
 
 # Farm-traded (through the brain). Sim accounts report DD=0 -> computed floor from `dd`.
-WATCHED = {"SimEval": {"dd": 2000.0, "live_dd": False}}
+WATCHED = {"SimEval": {"dd": 2000.0, "start_bal": 2000.0, "live_dd": False}}
 # Read-only balance display only (your REAL accounts; NEVER traded).
 LIVE_DISPLAY = ["MFFUSFFLX606768002", "1422474"]
 
@@ -30,6 +32,7 @@ LIVE_DISPLAY = ["MFFUSFFLX606768002", "1422474"]
 class FarmState:
     def __init__(self):
         self.farm = EvalFarm(copies=1, day_cap=1500.0, quiet=True)
+        self.farm.load_state(STATE_FILE)        # survive restarts/sleep; NT8 refreshes live numbers on sync
         self.lock = threading.Lock()
         self.running = False
         self.addon_up = False
@@ -60,9 +63,11 @@ class FarmState:
                 c = self._watched_cfg(a["name"])
                 if c is None:
                     continue
-                m = {"cash": a["cash"], "equity": a["netliq"]}
+                m = {"cash": a["cash"], "equity": a["netliq"], "realized_today": a.get("realized_today", 0.0)}
                 if c["live_dd"] and a.get("dd", 0) > 0:
                     m["dd"] = a["dd"]
+                if "start_bal" in c:
+                    m["start_bal"] = c["start_bal"]
                 snap[a["name"]] = m
             self.farm.sync_accounts(snap)
 
@@ -78,8 +83,11 @@ class FarmState:
                 if row:
                     live.append({"name": row["name"], "balance": row["cash"], "dd": row.get("dd", 0.0),
                                  "today": row.get("realized_today", 0.0), "connected": row.get("connected", True)})
+            leads, actives = self.farm.next_signal_takers()
+            self.farm.save_state(STATE_FILE)
             with self.lock:
                 self.snapshot = {"watched": watched, "live": live, "counts": dict(self.farm.counts()),
+                                 "ready": {"leads": leads, "actives": actives, "copies": self.farm.copies},
                                  "ts": datetime.now().strftime("%H:%M:%S")}
             time.sleep(POLL_SEC)
 
@@ -137,7 +145,8 @@ HTML = """<!doctype html><html><head><meta charset="utf-8"><title>NQ Farm</title
       <button onclick="ctl('stop')" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 font-semibold">Stop</button>
     </div>
   </div>
-  <div id="counts" class="flex flex-wrap gap-2 mb-6 text-sm"></div>
+  <div id="counts" class="flex flex-wrap gap-2 mb-4 text-sm"></div>
+  <div id="ready" class="mb-6 p-3 rounded-lg bg-slate-800 border border-sky-700"></div>
   <h2 class="text-lg font-semibold mb-2 text-slate-300">Eval accounts <span class="text-slate-500 text-sm">(farm-traded)</span></h2>
   <div id="watched" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8"></div>
   <h2 class="text-lg font-semibold mb-2 text-slate-300">Live accounts <span class="text-slate-500 text-sm">(read-only, never traded)</span></h2>
@@ -157,6 +166,15 @@ async function tick(){
   else { conn.textContent='Addon unreachable :8082'; conn.className='px-3 py-1 rounded-full text-sm bg-rose-600'; }
   document.getElementById('counts').innerHTML = Object.entries(s.counts||{}).map(([k,v])=>
     `<span class="px-2 py-1 rounded ${C[k]||'bg-slate-700'}">${k} ${v}</span>`).join('');
+  const r = s.ready || {leads:[], actives:[], copies:1};
+  const label = r.copies>1 ? `copy ${r.copies} - next ${r.copies} leads` : 'next lead (copy off)';
+  document.getElementById('ready').innerHTML =
+    `<div class="text-xs uppercase tracking-wide text-sky-400 mb-1">Ready for next signal - ${label}</div>`+
+    `<div class="flex flex-wrap gap-2 items-center">`+
+    (r.leads.length ? r.leads.map(n=>`<span class="px-3 py-1 rounded bg-sky-600 font-semibold">${n}</span>`).join('')
+                    : '<span class="text-slate-500">no fresh accounts waiting</span>')+
+    (r.actives.length ? `<span class="text-slate-400 text-sm">+ copying: ${r.actives.join(', ')}</span>` : '')+
+    `</div>`;
   document.getElementById('watched').innerHTML = (s.watched||[]).map(a=>`
     <div class="rounded-lg p-3 bg-slate-800 border border-slate-700 transition ${OUT[a.state]||''}">
       <div class="flex justify-between items-center mb-2">
@@ -178,7 +196,14 @@ setInterval(tick, 2000); tick();
 
 def main():
     print(f"NQ Farm dashboard -> http://localhost:{APP_PORT}   (Ctrl-C to stop)")
-    ThreadingHTTPServer(("localhost", APP_PORT), Handler).serve_forever()
+    try:
+        ThreadingHTTPServer(("localhost", APP_PORT), Handler).serve_forever()
+    except OSError as e:
+        print(f"\n*** Cannot start on :{APP_PORT} -> {e}")
+        print("*** An OLD copy of the app is still running and serving the previous page.")
+        print(f"*** Kill it then re-run. PowerShell:")
+        print(f"***   Get-NetTCPConnection -LocalPort {APP_PORT} -State Listen | "
+              "%{ Stop-Process -Id $_.OwningProcess -Force }")
 
 
 if __name__ == "__main__":

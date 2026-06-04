@@ -25,6 +25,8 @@ Run `python live/farm/eval_passer.py` for a quick hand-crafted demo of the trans
 sim_eval_passer.py to run a pool of accounts on real outcomes with per-account state prints.
 """
 from __future__ import annotations
+import json
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -76,6 +78,19 @@ class EvalAccount:
             return max(0.0, self.dd_remaining)
         return max(0.0, self.equity - self.floor)
 
+    def to_dict(self) -> dict:
+        return {"id": self.id, "state": self.state.value, "start_bal": self.start_bal, "dd": self.dd,
+                "peak_balance": self.peak_balance, "cash": self.cash, "equity": self.equity,
+                "day_profit": self.day_profit}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "EvalAccount":
+        a = cls(id=d["id"], start_bal=d["start_bal"], dd=d.get("dd", DD),
+                peak_balance=d.get("peak_balance", d["start_bal"]),
+                cash=d["cash"], equity=d["equity"], day_profit=d.get("day_profit", 0.0))
+        a.state = EState(d["state"])
+        return a
+
 
 @dataclass
 class Route:
@@ -107,21 +122,28 @@ class EvalFarm:
                 continue
             a = self.accounts.get(aid)
             if a is None:
-                a = EvalAccount(id=aid, start_bal=m["cash"], peak_balance=m["cash"],
+                # start_bal from the registry (plan baseline: $2k sims, $0 MFF) or first-seen cash.
+                a = EvalAccount(id=aid, start_bal=m.get("start_bal", m["cash"]), peak_balance=m["cash"],
                                 cash=m["cash"], equity=m["equity"], dd_remaining=m.get("dd"))
                 self.accounts[aid] = a
                 added.append(aid)
                 self._say(f"+ new eval {aid} -> FRESH (bal ${m['cash']:,.0f})")
+            elif a.state in (EState.BLOWN, EState.PASSED):
                 continue
-            if a.state in (EState.BLOWN, EState.PASSED):
-                continue
-            a.cash, a.equity = m["cash"], m["equity"]
-            if "dd" in m:
-                a.dd_remaining = m["dd"]      # live remaining DD (NT8 TrailingMaxDrawdown)
+            else:
+                a.cash, a.equity = m["cash"], m["equity"]
+                if "dd" in m:
+                    a.dd_remaining = m["dd"]  # live remaining DD (NT8 TrailingMaxDrawdown)
+            if "realized_today" in m:
+                a.day_profit = m["realized_today"]   # live today's P&L (resets at prop EOD -> restart/day-proof)
+                if a.state is EState.FRESH and abs(a.day_profit) > 1e-9:
+                    a.state = EState.ACTIVE          # it has already traded today
             if a.equity <= a.floor + 1e-9:
                 self._blow(a)
             elif a.total >= TARGET:
                 self._pass(a)
+            elif a.state is EState.ACTIVE and a.day_profit >= self.day_cap - 1e-9:
+                a.state = EState.DONE
         return added
 
     # -- route one signal: leads + copy --------------------------------------------------------
@@ -181,6 +203,31 @@ class EvalFarm:
 
     def counts(self) -> Counter:
         return Counter(a.state.value for a in self.accounts.values())
+
+    def next_signal_takers(self) -> tuple[list[str], list[str]]:
+        """Preview who the NEXT signal hits: the next `copies` FRESH leads + every ACTIVE with buffer.
+        copies=1 (no copy) -> one lead; copies=2 -> two leads."""
+        fresh = [a.id for a in self.accounts.values() if a.state is EState.FRESH]
+        actives = [a.id for a in self.accounts.values() if a.state is EState.ACTIVE and a.buffer > 0]
+        return fresh[: self.copies], actives
+
+    def save_state(self, path: str) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"copies": self.copies, "day_cap": self.day_cap,
+                       "accounts": [a.to_dict() for a in self.accounts.values()],
+                       "passed_ids": self.passed_ids, "blown_ids": self.blown_ids}, f, indent=2)
+
+    def load_state(self, path: str) -> None:
+        """Reload rotation bookkeeping across a restart/sleep. Live numbers (cash/equity/dd/day P&L)
+        are then refreshed from NT8 on the next sync_accounts, so only the state machine is persisted."""
+        if not os.path.exists(path):
+            return
+        with open(path) as f:
+            d = json.load(f)
+        self.accounts = {x["id"]: EvalAccount.from_dict(x) for x in d.get("accounts", [])}
+        self.passed_ids = d.get("passed_ids", [])
+        self.blown_ids = d.get("blown_ids", [])
 
     def state_table(self) -> str:
         order = {EState.ACTIVE: 0, EState.DONE: 1, EState.FRESH: 2, EState.PASSED: 3, EState.BLOWN: 4}

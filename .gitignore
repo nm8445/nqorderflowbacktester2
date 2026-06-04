@@ -32,3 +32,6 @@ venv/
 
 # Claude Code memory
 .claude/
+
+# farm runtime state (rebuilt from NT8 + persisted bookkeeping)
+live/farm/state/
