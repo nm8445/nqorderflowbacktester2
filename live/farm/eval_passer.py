@@ -60,6 +60,7 @@ class EvalAccount:
     cash: float = START
     equity: float = START
     day_profit: float = 0.0          # realized P&L banked TODAY (executor caps it at the daily cap)
+    last_seq: int = 0                # round-robin marker: bigger = more recently traded (de-corr mode)
 
     @property
     def total(self) -> float:
@@ -81,7 +82,7 @@ class EvalAccount:
     def to_dict(self) -> dict:
         return {"id": self.id, "state": self.state.value, "start_bal": self.start_bal, "dd": self.dd,
                 "peak_balance": self.peak_balance, "cash": self.cash, "equity": self.equity,
-                "day_profit": self.day_profit}
+                "day_profit": self.day_profit, "last_seq": self.last_seq}
 
     @classmethod
     def from_dict(cls, d: dict) -> "EvalAccount":
@@ -89,6 +90,7 @@ class EvalAccount:
                 peak_balance=d.get("peak_balance", d["start_bal"]),
                 cash=d["cash"], equity=d["equity"], day_profit=d.get("day_profit", 0.0))
         a.state = EState(d["state"])
+        a.last_seq = d.get("last_seq", 0)
         return a
 
 
@@ -104,12 +106,16 @@ class EvalFarm:
     def __init__(self, copies: int = 1, day_cap: float = DAY_CAP_50,
                  eval_pattern: str | None = None, quiet: bool = False):
         self.accounts: dict[str, EvalAccount] = {}
-        self.copies = copies                 # fresh leads promoted per signal (your copy-2-above-20 rule)
+        # Round-robin: each signal -> the next `copies` least-recently-traded accounts.
+        #   copies=1 -> fully de-correlated (low variance, the default).
+        #   copies=2 -> two accounts per signal (your copy-2-above-20; same rotation, just 2 at once).
+        self.copies = copies
         self.day_cap = day_cap
         self.eval_re = re.compile(eval_pattern) if eval_pattern else None
         self.quiet = quiet
         self.passed_ids: list[str] = []       # -> hand these to the funded farm
         self.blown_ids: list[str] = []
+        self._tick = 0                        # monotonic counter for round-robin ordering
         self.log: list[str] = []
 
     # -- ingest /accounts snapshot --------------------------------------------------------------
@@ -146,21 +152,28 @@ class EvalFarm:
                 a.state = EState.DONE
         return added
 
-    # -- route one signal: leads + copy --------------------------------------------------------
+    def _eligible(self) -> list:
+        # in-play, has buffer, not at today's cap. Strat does NOT restrict eligibility — an account
+        # can take OD again whether it won or lost OD before; the only question is whose turn it is.
+        return [a for a in self.accounts.values()
+                if a.state in (EState.FRESH, EState.ACTIVE) and a.buffer > 0]
+
+    # -- route one signal: round-robin to the next `copies` accounts ----------------------------
     def route_signal(self, strat: str, today: date) -> list[Route]:
-        promoted = 0
-        for a in self.accounts.values():                      # promote `copies` fresh leads
-            if promoted >= self.copies:
-                break
+        """The signal goes to the next `copies` least-recently-traded accounts. copies=1 = fully
+        de-correlated; copies=2 = the same round-robin, two accounts at a time. No account takes two
+        of the same rotation; an account waits its turn before trading again."""
+        takers = sorted(self._eligible(), key=lambda x: (x.last_seq, x.id))[: self.copies]
+        routes = []
+        for a in takers:
+            self._tick += 1
+            a.last_seq = self._tick
             if a.state is EState.FRESH:
                 a.state = EState.ACTIVE
-                promoted += 1
-                self._say(f"{a.id}: FRESH -> ACTIVE (lead on {strat})")
-        takers = [a for a in self.accounts.values()           # copy onto every active w/ buffer
-                  if a.state is EState.ACTIVE and a.buffer > 0]
-        if takers:
-            self._say(f"route {strat}: copied to {len(takers)} active acct(s)")
-        return [Route(a.id, strat, "EVAL", f"risk~${self.day_cap:,.0f}") for a in takers]
+            routes.append(Route(a.id, strat, "EVAL", f"risk~${self.day_cap:,.0f}"))
+        if routes:
+            self._say(f"route {strat} -> {[r.account_id for r in routes]}")
+        return routes
 
     # -- a copied position closed --------------------------------------------------------------
     def on_position_closed(self, account_id: str, strat: str, realized_pnl: float) -> None:
@@ -205,16 +218,14 @@ class EvalFarm:
         return Counter(a.state.value for a in self.accounts.values())
 
     def next_signal_takers(self) -> tuple[list[str], list[str]]:
-        """Preview who the NEXT signal hits: the next `copies` FRESH leads + every ACTIVE with buffer.
-        copies=1 (no copy) -> one lead; copies=2 -> two leads."""
-        fresh = [a.id for a in self.accounts.values() if a.state is EState.FRESH]
-        actives = [a.id for a in self.accounts.values() if a.state is EState.ACTIVE and a.buffer > 0]
-        return fresh[: self.copies], actives
+        """The next `copies` accounts in the round-robin (the Ready bar)."""
+        takers = sorted(self._eligible(), key=lambda x: (x.last_seq, x.id))[: self.copies]
+        return [a.id for a in takers], []
 
     def save_state(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            json.dump({"copies": self.copies, "day_cap": self.day_cap,
+            json.dump({"copies": self.copies, "day_cap": self.day_cap, "tick": self._tick,
                        "accounts": [a.to_dict() for a in self.accounts.values()],
                        "passed_ids": self.passed_ids, "blown_ids": self.blown_ids}, f, indent=2)
 
@@ -228,6 +239,7 @@ class EvalFarm:
         self.accounts = {x["id"]: EvalAccount.from_dict(x) for x in d.get("accounts", [])}
         self.passed_ids = d.get("passed_ids", [])
         self.blown_ids = d.get("blown_ids", [])
+        self._tick = d.get("tick", 0)
 
     def state_table(self) -> str:
         order = {EState.ACTIVE: 0, EState.DONE: 1, EState.FRESH: 2, EState.PASSED: 3, EState.BLOWN: 4}
