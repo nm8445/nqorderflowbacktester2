@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from accounts_client import fetch_accounts, _post, ORDER_URL, FLATTEN_URL
 from eval_passer import EvalFarm
+from funded_state_machine import FundedFarm, Phase as FPhase
 
 APP_PORT = 8090
 POLL_SEC = 3.0
@@ -27,10 +28,13 @@ STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "
 WATCHED = {"SimEval": {"dd": 2000.0, "start_bal": 2000.0, "live_dd": False}}
 # Read-only balance display only (your REAL accounts; NEVER traded).
 LIVE_DISPLAY = ["MFFUSFFLX606768002", "1422474"]
+# Funded farm accounts (gambling/milking). Set name prefixes once passed evals convert to funded;
+# empty = no funded accounts yet, so those sections show empty.
+FUNDED_PATTERN: list = []
 
 # --- sizer: risk$ -> exact NQ + MNQ legs --------------------------------------------------------
 PER_PT = 2.0           # MNQ $ per point (NQ = 10x)
-MAX_TEST_QTY = 2       # clamp the MNQ-equivalent small while testing on sims
+MAX_QTY = 60           # sanity ceiling on the MNQ-equivalent (won't bind for normal stops)
 
 
 def size_legs(risk_usd: float, stop_pts: float) -> list:
@@ -38,7 +42,7 @@ def size_legs(risk_usd: float, stop_pts: float) -> list:
     e.g. 18 -> [('NQ',1),('MNQ',8)]. Returns [(root, qty), ...]; the addon resolves the front month."""
     if stop_pts <= 0:
         return [("MNQ", 1)]
-    mnq = max(1, min(MAX_TEST_QTY, round(risk_usd / (stop_pts * PER_PT))))
+    mnq = max(1, min(MAX_QTY, round(risk_usd / (stop_pts * PER_PT))))
     n_nq, n_mnq = divmod(mnq, 10)
     legs = []
     if n_nq:
@@ -50,8 +54,12 @@ def size_legs(risk_usd: float, stop_pts: float) -> list:
 
 class FarmState:
     def __init__(self):
-        self.farm = EvalFarm(copies=1, day_cap=1500.0, quiet=True)
+        # day_cap = risk per trade AND the daily cap; target = pass threshold. REAL eval values:
+        # risk $1500 to make $1500 (1:1), pass at +$3000. The $2k sims have a $2k DD, so they behave
+        # exactly like a 50k eval (2 wins pass, ~1.3 losses blow).
+        self.farm = EvalFarm(copies=1, day_cap=1500.0, target=3000.0, quiet=True)
         self.farm.load_state(STATE_FILE)        # survive restarts/sleep; NT8 refreshes live numbers on sync
+        self.funded = FundedFarm(quiet=True)    # gambling/milking; populated when funded accounts appear
         self.lock = threading.Lock()
         self.running = False
         self.addon_up = False
@@ -104,9 +112,20 @@ class FarmState:
                                      "today": row.get("realized_today", 0.0), "connected": row.get("connected", True)})
                 leads, actives = self.farm.next_signal_takers()
                 self.farm.save_state(STATE_FILE)
+                # funded accounts -> gambling / milking sections
+                fsnap = {a["name"]: {"cash": a["cash"], "equity": a["netliq"],
+                                     **({"dd": a["dd"]} if a.get("dd", 0) > 0 else {})}
+                         for a in accts if FUNDED_PATTERN and any(pat in a["name"] for pat in FUNDED_PATTERN)}
+                self.funded.sync_accounts(fsnap)
+                funded = {"gambling": [], "milking": [], "retired": []}
+                for name, fa in self.funded.accounts.items():
+                    key = ("gambling" if fa.phase is FPhase.GAMBLING else
+                           "milking" if fa.phase is FPhase.MILKING else "retired")
+                    funded[key].append({"name": name, "balance": fa.cash, "buffer": fa.buffer,
+                                        "payouts": fa.payouts_done})
                 self.snapshot = {"watched": watched, "live": live, "counts": dict(self.farm.counts()),
                                  "ready": {"leads": leads, "actives": actives, "copies": self.farm.copies},
-                                 "ts": datetime.now().strftime("%H:%M:%S")}
+                                 "funded": funded, "ts": datetime.now().strftime("%H:%M:%S")}
             time.sleep(POLL_SEC)
 
     def get(self):
@@ -127,7 +146,8 @@ class FarmState:
             for root, q in size_legs(self.farm.day_cap, stop_pts):
                 try:
                     resp = _post(ORDER_URL, {"account": r.account_id, "strat": strat,
-                                             "direction": direction.upper(), "qty": q, "instrument": root})
+                                             "direction": direction.upper(), "qty": q, "instrument": root,
+                                             "slPts": stop_pts, "tpPts": stop_pts})  # 1:1 bracket
                 except Exception as e:
                     resp = {"ok": False, "error": str(e)}
                 placed.append({"account": r.account_id, "instr": root, "qty": q, "ok": resp.get("ok")})
@@ -178,6 +198,12 @@ class Handler(BaseHTTPRequestHandler):
             placed = STATE.fire_signal(p.get("strat", "OD"), p.get("direction", "LONG"),
                                        float(p.get("stop_pts", 30)))
             self._send(200, json.dumps({"ok": True, "placed": placed}))
+        elif self.path == "/api/signal":          # live signal broadcast from the coordinator
+            n = int(self.headers.get("Content-Length", 0))
+            p = json.loads(self.rfile.read(n).decode() if n else "{}")
+            placed = STATE.fire_signal(p.get("strat", "OD"), p.get("direction", "LONG"),
+                                       float(p.get("stop_pts", 30)))
+            self._send(200, json.dumps({"ok": True, "placed": placed}))
         elif self.path == "/api/flatten":
             n = int(self.headers.get("Content-Length", 0))
             p = json.loads(self.rfile.read(n).decode() if n else "{}")
@@ -212,6 +238,10 @@ HTML = """<!doctype html><html><head><meta charset="utf-8"><title>NQ Farm</title
   </div>
   <h2 class="text-lg font-semibold mb-2 text-slate-300">Eval accounts <span class="text-slate-500 text-sm">(farm-traded)</span></h2>
   <div id="watched" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8"></div>
+  <h2 class="text-lg font-semibold mb-2 text-amber-300">Funded - gambling</h2>
+  <div id="gambling" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6"></div>
+  <h2 class="text-lg font-semibold mb-2 text-emerald-300">Funded - milking</h2>
+  <div id="milking" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8"></div>
   <h2 class="text-lg font-semibold mb-2 text-slate-300">Live accounts <span class="text-slate-500 text-sm">(read-only, never traded)</span></h2>
   <div id="live" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
 </div>
@@ -263,6 +293,12 @@ async function tick(){
         <button onclick="flat('${a.name}')" class="text-xs px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700">flatten</button>
       </div>
     </div>`).join('') || '<div class="text-slate-500 col-span-3">no watched accounts in /accounts</div>';
+  const f = s.funded || {gambling:[], milking:[]};
+  const fcard = (a,b)=>`<div class="rounded-lg p-3 bg-slate-800 border ${b}"><div class="font-semibold">${a.name}</div>`+
+    `<div class="text-sm text-slate-200 mt-1">bal ${money(a.balance)}</div>`+
+    `<div class="text-xs text-slate-400">buffer ${money(a.buffer)} · payouts ${a.payouts}</div></div>`;
+  document.getElementById('gambling').innerHTML = (f.gambling||[]).length ? f.gambling.map(a=>fcard(a,'border-amber-700')).join('') : '<div class="text-slate-500 col-span-3">no gambling accounts yet</div>';
+  document.getElementById('milking').innerHTML = (f.milking||[]).length ? f.milking.map(a=>fcard(a,'border-emerald-700')).join('') : '<div class="text-slate-500 col-span-3">no milking accounts yet</div>';
   document.getElementById('live').innerHTML = (s.live||[]).map(a=>`
     <div class="rounded-lg p-3 bg-slate-800/60 border border-slate-700">
       <div class="font-semibold text-slate-200">${a.name}</div>

@@ -411,14 +411,21 @@ def run_live(execute_to_nt8: bool = False,
     # Coordinator subscribes to each engine. Approved signals fan out to
     # paper logger + NT8 callback (if --execute) + MT5 callback (if --execute-mt5).
     # Blocked signals are dropped (with rollback of the engine's phantom position).
+    try:                                          # mirror signals to the farm app (async, optional)
+        from live.farm.farm_broadcast import make_farm_cb
+    except Exception:
+        make_farm_cb = None
     for strat_name in ("RV", "B2", "OD", "FB"):
         downstream = [paper_cbs[strat_name]]
         if nt8_cbs[strat_name] is not None:
             downstream.append(nt8_cbs[strat_name])
         if mt5_cbs[strat_name] is not None:
             downstream.append(mt5_cbs[strat_name])
+        if make_farm_cb is not None:              # fire-and-forget broadcast to the farm; never blocks
+            downstream.append(make_farm_cb(strat_name, eng[strat_name]))
         coord.register(strat_name, eng[strat_name], *downstream)
-    print(f"[run_phase1] COORDINATOR wired — no-hedge rule active across 4 strats.\n")
+    print(f"[run_phase1] COORDINATOR wired — no-hedge rule active across 4 strats"
+          f"{' + farm broadcast' if make_farm_cb else ''}.\n")
 
     # Restore coordinator state AFTER engines are registered, so the desync-fix
     # logic in load_state() can validate restored open_dir entries against the
