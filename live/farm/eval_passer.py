@@ -103,9 +103,10 @@ class Route:
 
 
 class EvalFarm:
-    def __init__(self, copies: int = 1, day_cap: float = DAY_CAP_50,
+    def __init__(self, copies: int = 1, day_cap: float = DAY_CAP_50, target: float = TARGET,
                  eval_pattern: str | None = None, quiet: bool = False):
         self.accounts: dict[str, EvalAccount] = {}
+        self.target = target                  # pass threshold (real 50k eval = $3,000)
         # Round-robin: each signal -> the next `copies` least-recently-traded accounts.
         #   copies=1 -> fully de-correlated (low variance, the default).
         #   copies=2 -> two accounts per signal (your copy-2-above-20; same rotation, just 2 at once).
@@ -146,7 +147,7 @@ class EvalFarm:
                     a.state = EState.ACTIVE          # it has already traded today
             if a.equity <= a.floor + 1e-9:
                 self._blow(a)
-            elif a.total >= TARGET:
+            elif a.total >= self.target:
                 self._pass(a)
             elif a.state is EState.ACTIVE and a.day_profit >= self.day_cap - 1e-9:
                 a.state = EState.DONE

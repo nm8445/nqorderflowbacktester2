@@ -11,7 +11,8 @@
 // HTTP endpoints:
 //   GET  /accounts             — every NT8 account: name, cash, unrealized, netliq, dd, positions
 //   GET  /account_dump?name=X  — EVERY AccountItem for one account (diagnostic)
-//   POST /order                — {account, strat, direction, qty, slPrice?, tpPrice?, instrument?, tag?}
+//   POST /order                — {account, strat, direction, qty, instrument?, tag?,
+//                                 slPts?/tpPts? (distance, bracket off the fill) OR slPrice?/tpPrice? (absolute)}
 //   POST /close                — {account, tag, reason?}
 //   GET  /status               — server diagnostic
 //
@@ -71,6 +72,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public int Quantity;
             public Order EntryOrder, StopOrder, TargetOrder;
             public DateTime EntryTime;
+            public double SlPts, TpPts;     // bracket distances (attached off the fill price)
         }
         // keyed by "account|tag" so one signal copied across accounts tracks separately
         private ConcurrentDictionary<string, TaggedPosition> openPositions =
@@ -459,10 +461,13 @@ namespace NinjaTrader.NinjaScript.AddOns
 
             OrderAction oaEntry = direction == "LONG" ? OrderAction.Buy : OrderAction.SellShort;
             OrderAction oaExit  = direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
             bool hasStop = p.ContainsKey("slprice") || p.ContainsKey("slPrice");
             bool hasTgt  = p.ContainsKey("tpprice") || p.ContainsKey("tpPrice");
-            Func<string, double> getPx = k => double.Parse(p.ContainsKey(k) ? p[k] : p[k.ToLower()],
-                                                           System.Globalization.CultureInfo.InvariantCulture);
+            Func<string, double> getPx = k => double.Parse(p.ContainsKey(k) ? p[k] : p[k.ToLower()], ci);
+            double slPts = p.ContainsKey("slPts") ? double.Parse(p["slPts"], ci) : 0;
+            double tpPts = p.ContainsKey("tpPts") ? double.Parse(p["tpPts"], ci) : 0;
+            bool hasPtsBracket = slPts > 0 || tpPts > 0;
 
             var pos = new TaggedPosition { Account = account, Tag = tag, Strat = strat,
                                            Direction = direction, Quantity = qty, EntryTime = DateTime.Now };
@@ -490,6 +495,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                         acct.Submit(new[] { pos.StopOrder });
                     }
                 }
+                else if (hasPtsBracket)   // attach SL/TP off the actual fill (background)
+                {
+                    pos.SlPts = slPts; pos.TpPts = tpPts;
+                    Task.Run(() => AttachBracketAfterFill(acct, instrument, pos, oaExit));
+                }
                 openPositions[account + "|" + tag] = pos;
                 Log($"ORDER {account} {strat} {direction} x{qty} {instrName} sl={hasStop} tp={hasTgt} tag={tag}");
                 return $"{{\"ok\":true,\"account\":\"{Esc(account)}\",\"tag\":\"{Esc(tag)}\"}}";
@@ -499,6 +509,41 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Log($"ORDER ERROR {account} {tag}: {ex.Message}");
                 return $"{{\"ok\":false,\"error\":\"{Esc(ex.Message)}\"}}";
             }
+        }
+
+        // Wait for the market entry to fill, then attach an OCO SL/TP relative to the actual fill
+        // price. Runs in a background task so /order returns immediately.
+        private void AttachBracketAfterFill(Account acct, Instrument instr, TaggedPosition pos, OrderAction oaExit)
+        {
+            try
+            {
+                for (int i = 0; i < 60 && pos.EntryOrder.OrderState != OrderState.Filled; i++)
+                    Thread.Sleep(100);                       // up to ~6s
+                if (pos.EntryOrder.OrderState != OrderState.Filled)
+                {
+                    Log($"BRACKET {pos.Tag}: entry not filled in time - no bracket");
+                    return;
+                }
+                double fill = pos.EntryOrder.AverageFillPrice;
+                int sign = pos.Direction == "LONG" ? 1 : -1;
+                string ocoId = (pos.SlPts > 0 && pos.TpPts > 0) ? (pos.Tag + "_OCO") : "";
+                if (pos.TpPts > 0)
+                {
+                    double tp = fill + sign * pos.TpPts;
+                    pos.TargetOrder = acct.CreateOrder(instr, oaExit, OrderType.Limit, OrderEntry.Manual,
+                        TimeInForce.Day, pos.Quantity, tp, 0, ocoId, pos.Tag + "_T", DateTime.MaxValue, null);
+                    acct.Submit(new[] { pos.TargetOrder });
+                }
+                if (pos.SlPts > 0)
+                {
+                    double sl = fill - sign * pos.SlPts;
+                    pos.StopOrder = acct.CreateOrder(instr, oaExit, OrderType.StopMarket, OrderEntry.Manual,
+                        TimeInForce.Day, pos.Quantity, 0, sl, ocoId, pos.Tag + "_S", DateTime.MaxValue, null);
+                    acct.Submit(new[] { pos.StopOrder });
+                }
+                Log($"BRACKET {pos.Tag} fill={fill:F2} sl-{pos.SlPts:F0} tp+{pos.TpPts:F0} pts");
+            }
+            catch (Exception ex) { Log($"BRACKET ERROR {pos.Tag}: {ex.Message}"); }
         }
 
         // POST /close — flatten a tagged position on ONE whitelisted account.
