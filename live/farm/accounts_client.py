@@ -18,6 +18,7 @@ DUMP_URL = "http://localhost:8082/account_dump"
 ORDER_URL = "http://localhost:8082/order"
 CLOSE_URL = "http://localhost:8082/close"
 FLATTEN_URL = "http://localhost:8082/flatten"
+APP_FIRE_URL = "http://localhost:8090/api/fire_signal"   # routes via the dashboard's brain
 
 # --- which accounts to show ---------------------------------------------------------------------
 # NT8's Account.All includes every dead/old account ever added, and a FRESH account reads $0 just
@@ -94,6 +95,12 @@ def flatten_account(account: str) -> None:
     print("FLATTEN ->", _post(FLATTEN_URL, {"account": account, "reason": "manual"}))
 
 
+def fire(strat: str, direction: str, stop_pts) -> None:
+    """python accounts_client.py fire <strat> <LONG|SHORT> <stop_pts>  (routes via the app to the sims)"""
+    print("FIRE ->", _post(APP_FIRE_URL, {"strat": strat, "direction": direction.upper(),
+                                          "stop_pts": float(stop_pts)}))
+
+
 def main() -> None:
     if len(sys.argv) >= 3 and sys.argv[1] == "dump":   # python accounts_client.py dump <ACCOUNT_NAME>
         dump_account(sys.argv[2])
@@ -106,6 +113,9 @@ def main() -> None:
         return
     if len(sys.argv) >= 3 and sys.argv[1] == "flatten":  # flatten <account>
         flatten_account(sys.argv[2])
+        return
+    if len(sys.argv) >= 5 and sys.argv[1] == "fire":     # fire <strat> <LONG|SHORT> <stop_pts>
+        fire(sys.argv[2], sys.argv[3], sys.argv[4])
         return
     try:
         while True:

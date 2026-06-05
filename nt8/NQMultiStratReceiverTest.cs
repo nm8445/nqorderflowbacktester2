@@ -63,7 +63,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             "SimEval1", "SimEval2", "SimEval3", "SimEval4", "SimEval5"
         };
-        private string instrumentName = "MNQ 06-26";   // default order instrument (sizer works in MNQ)
+        private string instrumentName = "MNQ";   // default order ROOT; Resolve() appends the front month
 
         private class TaggedPosition
         {
@@ -179,7 +179,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     stopButton.IsEnabled = true;
                 }));
                 string wl = string.Join(", ", orderWhitelist);
-                Log($"TEST server started on :{serverPort} - GET /accounts, POST /order + /close (whitelist: {wl})");
+                Log($"TEST server started on :{serverPort} - front month {FrontMonth()} - whitelist: {wl}");
             }
             catch (Exception ex)
             {
@@ -361,6 +361,36 @@ namespace NinjaTrader.NinjaScript.AddOns
             return sb.ToString();
         }
 
+        // Resolve a root ("NQ" / "MNQ") to the full front-month code ("NQ 06-26"); pass-through if it
+        // already has an expiry (contains a space).
+        private string Resolve(string name)
+        {
+            return (string.IsNullOrEmpty(name) || name.Contains(" ")) ? name : name + " " + FrontMonth();
+        }
+
+        // Front quarterly contract (Mar/Jun/Sep/Dec) as "MM-YY": the nearest whose 3rd-Friday expiry
+        // is still > 8 days away; otherwise roll to the next quarter.
+        private string FrontMonth()
+        {
+            DateTime now = DateTime.Now;
+            int[] q = { 3, 6, 9, 12 };
+            for (int yo = 0; yo <= 1; yo++)
+                foreach (int m in q)
+                {
+                    int year = now.Year + yo;
+                    if (ThirdFriday(year, m).AddDays(-8) > now)
+                        return string.Format("{0:00}-{1:00}", m, year % 100);
+                }
+            return string.Format("{0:00}-{1:00}", now.Month, now.Year % 100);
+        }
+
+        private DateTime ThirdFriday(int year, int month)
+        {
+            DateTime d = new DateTime(year, month, 1);
+            int toFri = (((int)DayOfWeek.Friday - (int)d.DayOfWeek) + 7) % 7;
+            return d.AddDays(toFri + 14);
+        }
+
         // Connection status as a string ("Connected" / "Disconnected" / "ConnectionLost" / ...).
         // We compare the ToString() to avoid referencing the enum members directly (compile-safe).
         private string ConnStatus(Account a)
@@ -423,7 +453,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             lock (Account.All) { acct = Account.All.FirstOrDefault(a => a.Name == account); }
             if (acct == null) return $"{{\"ok\":false,\"error\":\"account not found\",\"account\":\"{Esc(account)}\"}}";
 
-            string instrName = p.ContainsKey("instrument") ? p["instrument"] : instrumentName;
+            string instrName = Resolve(p.ContainsKey("instrument") ? p["instrument"] : instrumentName);
             var instrument = Instrument.GetInstrument(instrName);
             if (instrument == null) return $"{{\"ok\":false,\"error\":\"instrument not found: {Esc(instrName)}\"}}";
 
@@ -514,22 +544,27 @@ namespace NinjaTrader.NinjaScript.AddOns
             Account acct;
             lock (Account.All) { acct = Account.All.FirstOrDefault(a => a.Name == accountName); }
             if (acct == null) return "{\"ok\":false,\"error\":\"account not found\"}";
-            var instrument = Instrument.GetInstrument(instrumentName);
             try
             {
-                var bp = acct.Positions.FirstOrDefault(x => x.Instrument == instrument);
-                if (bp == null || bp.MarketPosition == MarketPosition.Flat)
+                // Close EVERY non-flat position (any instrument), so a mixed NQ + MNQ trade flattens fully.
+                var positions = acct.Positions.Where(x => x.MarketPosition != MarketPosition.Flat).ToList();
+                if (positions.Count == 0)
                     return "{\"ok\":true,\"note\":\"already flat\"}";
-                foreach (var o in acct.Orders.ToList())          // cancel orphan SL/TP for this instrument
-                    if (o.Instrument == instrument && o.OrderState == OrderState.Working) acct.Cancel(new[] { o });
-                OrderAction oa = bp.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.BuyToCover;
-                var co = acct.CreateOrder(instrument, oa, OrderType.Market, OrderEntry.Manual, TimeInForce.Day,
-                    bp.Quantity, 0, 0, "", "FLATTEN_" + DateTime.Now.ToString("HHmmss"), DateTime.MaxValue, null);
-                acct.Submit(new[] { co });
+                int legs = 0;
+                foreach (var bp in positions)
+                {
+                    foreach (var o in acct.Orders.ToList())       // cancel orphan SL/TP for this instrument
+                        if (o.Instrument == bp.Instrument && o.OrderState == OrderState.Working) acct.Cancel(new[] { o });
+                    OrderAction oa = bp.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.BuyToCover;
+                    var co = acct.CreateOrder(bp.Instrument, oa, OrderType.Market, OrderEntry.Manual, TimeInForce.Day,
+                        bp.Quantity, 0, 0, "", "FLATTEN_" + DateTime.Now.ToString("HHmmss") + "_" + legs, DateTime.MaxValue, null);
+                    acct.Submit(new[] { co });
+                    legs++;
+                }
                 foreach (var k in openPositions.Keys.Where(k => k.StartsWith(accountName + "|")).ToList())
                     openPositions.TryRemove(k, out _);
-                Log($"FLATTEN {accountName} {bp.MarketPosition} x{bp.Quantity} reason={reason}");
-                return $"{{\"ok\":true,\"note\":\"flattened\",\"qty\":{bp.Quantity}}}";
+                Log($"FLATTEN {accountName} {legs} leg(s) reason={reason}");
+                return $"{{\"ok\":true,\"note\":\"flattened\",\"legs\":{legs}}}";
             }
             catch (Exception ex)
             {
@@ -543,7 +578,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             Account acct;
             lock (Account.All) { acct = Account.All.FirstOrDefault(a => a.Name == pos.Account); }
             if (acct == null) return "{\"ok\":false,\"error\":\"account not found\"}";
-            var instrument = pos.EntryOrder?.Instrument ?? Instrument.GetInstrument(instrumentName);
+            var instrument = pos.EntryOrder?.Instrument ?? Instrument.GetInstrument(Resolve(instrumentName));
             try
             {
                 // Cancel OCO siblings so they can't fire after the manual exit.
