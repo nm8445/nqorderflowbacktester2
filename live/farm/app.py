@@ -13,8 +13,9 @@ import json
 import os
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from zoneinfo import ZoneInfo
 
 from accounts_client import fetch_accounts, _post, ORDER_URL, FLATTEN_URL
 from eval_passer import EvalFarm
@@ -23,6 +24,8 @@ from funded_state_machine import FundedFarm, Phase as FPhase
 APP_PORT = 8090
 POLL_SEC = 3.0
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "eval_farm_state.json")
+EOD_FLATTEN = (16, 55)             # 4:55pm ET: force-flatten any eval trade still open before the EOD
+ET_ZONE = ZoneInfo("America/New_York")
 
 # Farm-traded (through the brain). Sim accounts report DD=0 -> computed floor from `dd`.
 WATCHED = {"SimEval": {"dd": 2000.0, "start_bal": 2000.0, "live_dd": False}}
@@ -60,6 +63,7 @@ class FarmState:
         self.farm = EvalFarm(copies=1, day_cap=1500.0, target=3000.0, quiet=True)
         self.farm.load_state(STATE_FILE)        # survive restarts/sleep; NT8 refreshes live numbers on sync
         self.funded = FundedFarm(quiet=True)    # gambling/milking; populated when funded accounts appear
+        self.last_flatten_date = None           # EOD sweep guard (fire once/day)
         self.lock = threading.Lock()
         self.running = False
         self.addon_up = False
@@ -72,8 +76,25 @@ class FarmState:
                 return c
         return None
 
+    def _maybe_eod_flatten(self):
+        """At 4:55pm ET, force-flatten every eval account once (their 1:1 brackets run to TP/SL, so
+        a still-open trade is closed before the 5pm EOD; keep whatever P&L). Funded accounts are NOT
+        swept here — milking follows the real strategy. Runs regardless of Start/Stop."""
+        now_et = datetime.now(ET_ZONE)
+        cutoff = now_et.replace(hour=EOD_FLATTEN[0], minute=EOD_FLATTEN[1], second=0, microsecond=0)
+        if cutoff <= now_et < cutoff + timedelta(minutes=5) and self.last_flatten_date != now_et.date():
+            self.last_flatten_date = now_et.date()
+            names = list(self.farm.accounts.keys())
+            print(f"[farm] {now_et:%H:%M} ET EOD sweep -> flattening {len(names)} eval account(s)")
+            for name in names:
+                try:
+                    self.flatten(name)
+                except Exception:
+                    pass
+
     def _loop(self):
         while True:
+            self._maybe_eod_flatten()           # 4:55pm ET sweep (independent of Start/Stop)
             if not self.running:
                 time.sleep(0.4)
                 continue
