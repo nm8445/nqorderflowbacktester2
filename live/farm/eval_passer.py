@@ -61,6 +61,13 @@ class EvalAccount:
     equity: float = START
     day_profit: float = 0.0          # realized P&L banked TODAY (executor caps it at the daily cap)
     last_seq: int = 0                # round-robin marker: bigger = more recently traded (de-corr mode)
+    # --- per-account PLAN (e.g. 5%ers-50% vs Tradeify-40%). `plan` is the source of truth (persisted);
+    #     the app resolves it into the 4 numbers below, which the brain logic reads. ---
+    plan: str = "default"
+    day_cap: float = DAY_CAP_50      # max daily profit / per-trade risk
+    stop_new_at: float = DAY_CAP_50  # day_profit at/above -> DONE (no new trades today)
+    target: float = TARGET           # pass threshold
+    pass_buffer: float = 0.0         # force-close the final trade at target+buffer
 
     @property
     def total(self) -> float:
@@ -82,7 +89,9 @@ class EvalAccount:
     def to_dict(self) -> dict:
         return {"id": self.id, "state": self.state.value, "start_bal": self.start_bal, "dd": self.dd,
                 "peak_balance": self.peak_balance, "cash": self.cash, "equity": self.equity,
-                "day_profit": self.day_profit, "last_seq": self.last_seq}
+                "day_profit": self.day_profit, "last_seq": self.last_seq, "plan": self.plan,
+                "day_cap": self.day_cap, "stop_new_at": self.stop_new_at,
+                "target": self.target, "pass_buffer": self.pass_buffer}
 
     @classmethod
     def from_dict(cls, d: dict) -> "EvalAccount":
@@ -91,6 +100,11 @@ class EvalAccount:
                 cash=d["cash"], equity=d["equity"], day_profit=d.get("day_profit", 0.0))
         a.state = EState(d["state"])
         a.last_seq = d.get("last_seq", 0)
+        a.plan = d.get("plan", "default")
+        a.day_cap = d.get("day_cap", DAY_CAP_50)
+        a.stop_new_at = d.get("stop_new_at", DAY_CAP_50)
+        a.target = d.get("target", TARGET)
+        a.pass_buffer = d.get("pass_buffer", 0.0)
         return a
 
 
@@ -104,6 +118,7 @@ class Route:
 
 class EvalFarm:
     def __init__(self, copies: int = 1, day_cap: float = DAY_CAP_50, target: float = TARGET,
+                 stop_new_at: float | None = None, pass_buffer: float = 0.0,
                  eval_pattern: str | None = None, quiet: bool = False):
         self.accounts: dict[str, EvalAccount] = {}
         self.target = target                  # pass threshold (real 50k eval = $3,000)
@@ -111,7 +126,13 @@ class EvalFarm:
         #   copies=1 -> fully de-correlated (low variance, the default).
         #   copies=2 -> two accounts per signal (your copy-2-above-20; same rotation, just 2 at once).
         self.copies = copies
-        self.day_cap = day_cap
+        self.day_cap = day_cap                # max profit banked per day (also = per-trade risk, 1:1)
+        # day_profit at/above this -> DONE (no NEW trades today). Below day_cap so an account that's
+        # already near the cap doesn't take a pointless trade it would only get force-closed out of.
+        self.stop_new_at = stop_new_at if stop_new_at is not None else day_cap
+        # Force-close the FINAL trade at target+pass_buffer (a small slippage/commission cushion) so the
+        # realized pass total lands just over the line instead of overshooting and raising the bar.
+        self.pass_buffer = pass_buffer
         self.eval_re = re.compile(eval_pattern) if eval_pattern else None
         self.quiet = quiet
         self.passed_ids: list[str] = []       # -> hand these to the funded farm
@@ -147,11 +168,21 @@ class EvalFarm:
                     a.state = EState.ACTIVE          # it has already traded today
             if a.equity <= a.floor + 1e-9:
                 self._blow(a)
-            elif a.total >= self.target:
+            elif a.total >= a.target:
                 self._pass(a)
-            elif a.state is EState.ACTIVE and a.day_profit >= self.day_cap - 1e-9:
+            elif a.state is EState.ACTIVE and a.day_profit >= a.stop_new_at - 1e-9:
                 a.state = EState.DONE
         return added
+
+    def cap_close_room(self, a: EvalAccount) -> float:
+        """$ of additional (unrealized) gain at which an OPEN trade should be force-closed: the smaller
+        of today's room to the daily cap and the total room to (target + pass_buffer). Closing there
+        lands the day at ~day_cap and cuts the FINAL trade short at the pass line so the account passes
+        just over +$3k without overshooting (which would raise the consistency bar). <=0 => already
+        at/over a line."""
+        day_room = a.day_cap - a.day_profit
+        pass_room = (a.target + a.pass_buffer) - a.total
+        return min(day_room, pass_room)
 
     def _eligible(self) -> list:
         # in-play, has buffer, not at today's cap. Strat does NOT restrict eligibility — an account
@@ -171,7 +202,7 @@ class EvalFarm:
             a.last_seq = self._tick
             if a.state is EState.FRESH:
                 a.state = EState.ACTIVE
-            routes.append(Route(a.id, strat, "EVAL", f"risk~${self.day_cap:,.0f}"))
+            routes.append(Route(a.id, strat, "EVAL", f"risk~${a.day_cap:,.0f}"))
         if routes:
             self._say(f"route {strat} -> {[r.account_id for r in routes]}")
         return routes
@@ -184,7 +215,7 @@ class EvalFarm:
         if a is None or a.state is not EState.ACTIVE:
             return
         a.day_profit += realized_pnl
-        if a.day_profit >= self.day_cap - 1e-9:
+        if a.day_profit >= a.stop_new_at - 1e-9:
             a.state = EState.DONE
             self._say(f"{a.id}: daily cap (+${a.day_profit:,.0f}) -> DONE for the day")
 

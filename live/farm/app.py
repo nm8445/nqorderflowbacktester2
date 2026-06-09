@@ -18,11 +18,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
 from accounts_client import fetch_accounts, _post, ORDER_URL, FLATTEN_URL
-from eval_passer import EvalFarm
+from eval_passer import EvalFarm, EState
 from funded_state_machine import FundedFarm, Phase as FPhase
 
 APP_PORT = 8090
 POLL_SEC = 3.0
+CAP_FLATTEN_COOLDOWN_SEC = 10.0    # don't re-spam /flatten on the same account while it closes
+
+# Eval PLANS: per-firm daily cap + consistency thresholds, assigned PER ACCOUNT (a detected eval gets
+# DEFAULT_PLAN; reassign any account in the dashboard via dropdown or drag-and-drop between sections).
+#   day_cap     = max profit banked per day (also the per-trade 1:1 risk)
+#   stop_new_at = day_profit at/above which an account goes DONE (takes no NEW trade today)
+#   target      = pass threshold (+$3,000)
+#   pass_buffer = force-close the FINAL trade at target+buffer so the realized pass lands just over the
+#                 line after slippage/commission (and keeps the biggest day under the consistency %)
+PLANS = {
+    "futures_50":  {"label": "50% futures firms", "day_cap": 1500.0, "stop_new_at": 1400.0, "target": 3000.0, "pass_buffer": 10.0},
+    "tradeify_40": {"label": "Tradeify 40%",      "day_cap": 1200.0, "stop_new_at": 1100.0, "target": 3000.0, "pass_buffer": 10.0},
+}
+DEFAULT_PLAN = "futures_50"
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "eval_farm_state.json")
 EOD_FLATTEN = (16, 55)             # 4:55pm ET: force-flatten any eval trade still open before the EOD
 ET_ZONE = ZoneInfo("America/New_York")
@@ -60,10 +74,13 @@ class FarmState:
         # day_cap = risk per trade AND the daily cap; target = pass threshold. REAL eval values:
         # risk $1500 to make $1500 (1:1), pass at +$3000. The $2k sims have a $2k DD, so they behave
         # exactly like a 50k eval (2 wins pass, ~1.3 losses blow).
-        self.farm = EvalFarm(copies=1, day_cap=1500.0, target=3000.0, quiet=True)
+        dp = PLANS[DEFAULT_PLAN]
+        self.farm = EvalFarm(copies=1, day_cap=dp["day_cap"], target=dp["target"],
+                             stop_new_at=dp["stop_new_at"], pass_buffer=dp["pass_buffer"], quiet=True)
         self.farm.load_state(STATE_FILE)        # survive restarts/sleep; NT8 refreshes live numbers on sync
         self.funded = FundedFarm(quiet=True)    # gambling/milking; populated when funded accounts appear
         self.last_flatten_date = None           # EOD sweep guard (fire once/day)
+        self._cap_cooldown = {}                 # account -> last cap-flatten monotonic ts (anti-spam)
         self.lock = threading.Lock()
         self.running = False
         self.addon_up = False
@@ -111,6 +128,11 @@ class FarmState:
                 c = self._watched_cfg(a["name"])
                 if c is None:
                     continue
+                # Guard against bogus reads. A disconnected / just-woke-from-sleep NT8 account
+                # reports netliq=$0 while cash is still positive; feeding that $0 equity to the
+                # brain false-blows it (equity <= floor). Skip the account until the read is valid.
+                if not a.get("connected", True) or a.get("netliq", 0) <= 0:
+                    continue
                 m = {"cash": a["cash"], "equity": a["netliq"], "realized_today": a.get("realized_today", 0.0)}
                 if c["live_dd"] and a.get("dd", 0) > 0:
                     m["dd"] = a["dd"]
@@ -121,10 +143,12 @@ class FarmState:
                 self.farm.sync_accounts(snap)
                 watched = []
                 for name, acct in self.farm.accounts.items():
+                    self._apply_plan(acct, acct.plan)    # keep caps in sync with the assigned plan
                     raw = by_name.get(name, {})
                     watched.append({"name": name, "state": acct.state.value,
                                     "balance": raw.get("cash", acct.cash), "buffer": acct.buffer,
-                                    "today": raw.get("realized_today", 0.0)})
+                                    "today": raw.get("realized_today", 0.0),
+                                    "plan": acct.plan, "day_cap": acct.day_cap, "target": acct.target})
                 live = []
                 for pat in LIVE_DISPLAY:
                     row = next((a for a in accts if pat in a["name"]), None)
@@ -136,7 +160,8 @@ class FarmState:
                 # funded accounts -> gambling / milking sections
                 fsnap = {a["name"]: {"cash": a["cash"], "equity": a["netliq"],
                                      **({"dd": a["dd"]} if a.get("dd", 0) > 0 else {})}
-                         for a in accts if FUNDED_PATTERN and any(pat in a["name"] for pat in FUNDED_PATTERN)}
+                         for a in accts if FUNDED_PATTERN and any(pat in a["name"] for pat in FUNDED_PATTERN)
+                         and a.get("connected", True) and a.get("netliq", 0) > 0}
                 self.funded.sync_accounts(fsnap)
                 funded = {"gambling": [], "milking": [], "retired": []}
                 for name, fa in self.funded.accounts.items():
@@ -144,9 +169,20 @@ class FarmState:
                            "milking" if fa.phase is FPhase.MILKING else "retired")
                     funded[key].append({"name": name, "balance": fa.cash, "buffer": fa.buffer,
                                         "payouts": fa.payouts_done})
+                plans = [{"key": k, "label": v["label"], "day_cap": v["day_cap"], "target": v["target"]}
+                         for k, v in PLANS.items()]
                 self.snapshot = {"watched": watched, "live": live, "counts": dict(self.farm.counts()),
                                  "ready": {"leads": leads, "actives": actives, "copies": self.farm.copies},
-                                 "funded": funded, "ts": datetime.now().strftime("%H:%M:%S")}
+                                 "funded": funded, "plans": plans, "ts": datetime.now().strftime("%H:%M:%S")}
+            # Cap force-close: close any open eval winner that would overshoot the daily cap / pass line
+            # (computed under the lock, flattened here outside it to avoid holding the lock on network I/O).
+            for name, unreal, room, day_cap, land in self._cap_flatten_candidates(by_name):
+                print(f"[farm] CAP force-close {name}: open +${unreal:,.0f} >= room ${room:,.0f} "
+                      f"-> lands day ~${day_cap:,.0f} (or pass ~${land:,.0f})")
+                try:
+                    self.flatten(name, reason="cap")
+                except Exception:
+                    pass
             time.sleep(POLL_SEC)
 
     def get(self):
@@ -164,7 +200,9 @@ class FarmState:
             routes = self.farm.route_signal(strat, date.today())
         placed = []
         for r in routes:
-            for root, q in size_legs(self.farm.day_cap, stop_pts):
+            acct = self.farm.accounts.get(r.account_id)
+            risk = acct.day_cap if acct else self.farm.day_cap   # per-account plan risk
+            for root, q in size_legs(risk, stop_pts):
                 try:
                     resp = _post(ORDER_URL, {"account": r.account_id, "strat": strat,
                                              "direction": direction.upper(), "qty": q, "instrument": root,
@@ -176,11 +214,56 @@ class FarmState:
             self.farm.save_state(STATE_FILE)
         return placed
 
-    def flatten(self, account):
+    def flatten(self, account, reason="manual"):
         try:
-            return _post(FLATTEN_URL, {"account": account, "reason": "manual"})
+            return _post(FLATTEN_URL, {"account": account, "reason": reason})
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    @staticmethod
+    def _apply_plan(acct, plan_key):
+        """Resolve a plan key into the account's caps. Unknown key -> DEFAULT_PLAN."""
+        key = plan_key if plan_key in PLANS else DEFAULT_PLAN
+        p = PLANS[key]
+        acct.plan = key
+        acct.day_cap, acct.stop_new_at = p["day_cap"], p["stop_new_at"]
+        acct.target, acct.pass_buffer = p["target"], p["pass_buffer"]
+
+    def set_plan(self, account, plan):
+        """Assign an eval account to a plan (dropdown / drag-drop). Persists immediately."""
+        if plan not in PLANS:
+            return {"ok": False, "error": f"unknown plan {plan}"}
+        with self.lock:
+            acct = self.farm.accounts.get(account)
+            if acct is None:
+                return {"ok": False, "error": f"unknown account {account}"}
+            self._apply_plan(acct, plan)
+            self.farm.save_state(STATE_FILE)
+        print(f"[farm] {account} -> plan {plan} ({PLANS[plan]['label']})")
+        return {"ok": True, "account": account, "plan": plan}
+
+    def _cap_flatten_candidates(self, by_name):
+        """Eval cap force-close: under the lock, find ACTIVE accounts whose OPEN-trade unrealized has
+        reached the close-room (daily-cap room OR pass-line room, whichever is nearer). Returns a list
+        of (name, unrealized, room) to flatten OUTSIDE the lock (network I/O). Only winners are capped;
+        losing trades run to their own SL/TP/EOD. Skips bad reads and accounts on cooldown."""
+        out = []
+        now = time.monotonic()
+        with self.lock:
+            for name, acct in self.farm.accounts.items():
+                if acct.state is not EState.ACTIVE:
+                    continue
+                raw = by_name.get(name)
+                if not raw or not raw.get("connected", True) or raw.get("netliq", 0) <= 0:
+                    continue
+                unreal = raw["netliq"] - raw["cash"]          # open-position P&L (equity - balance)
+                if unreal <= 0:
+                    continue                                   # only cap winners approaching a line
+                room = self.farm.cap_close_room(acct)
+                if unreal >= room and (now - self._cap_cooldown.get(name, 0)) >= CAP_FLATTEN_COOLDOWN_SEC:
+                    self._cap_cooldown[name] = now
+                    out.append((name, unreal, room, acct.day_cap, acct.target + acct.pass_buffer))
+        return out
 
 
 STATE = FarmState()
@@ -229,6 +312,10 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
             p = json.loads(self.rfile.read(n).decode() if n else "{}")
             self._send(200, json.dumps(STATE.flatten(p.get("account", ""))))
+        elif self.path == "/api/set_plan":
+            n = int(self.headers.get("Content-Length", 0))
+            p = json.loads(self.rfile.read(n).decode() if n else "{}")
+            self._send(200, json.dumps(STATE.set_plan(p.get("account", ""), p.get("plan", ""))))
         else:
             self._send(404, "{}")
 
@@ -257,8 +344,9 @@ HTML = """<!doctype html><html><head><meta charset="utf-8"><title>NQ Farm</title
     <button onclick="fire()" class="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 font-semibold">Fire</button>
     <span id="fResult" class="text-slate-400"></span>
   </div>
-  <h2 class="text-lg font-semibold mb-2 text-slate-300">Eval accounts <span class="text-slate-500 text-sm">(farm-traded)</span></h2>
-  <div id="watched" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8"></div>
+  <h2 class="text-lg font-semibold mb-2 text-slate-300">Eval accounts
+    <span class="text-slate-500 text-sm">(farm-traded · drag a card to another plan, or use its dropdown)</span></h2>
+  <div id="evalSections" class="mb-8"></div>
   <h2 class="text-lg font-semibold mb-2 text-amber-300">Funded - gambling</h2>
   <div id="gambling" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6"></div>
   <h2 class="text-lg font-semibold mb-2 text-emerald-300">Funded - milking</h2>
@@ -273,6 +361,30 @@ async function ctl(a){ await fetch('/api/'+a,{method:'POST'}); tick(); }
 async function flat(acct){
   await fetch('/api/flatten',{method:'POST',body:JSON.stringify({account:acct})});
   tick();
+}
+function evalCard(a, plans){
+  const opts = (plans||[]).map(p=>`<option value="${p.key}" ${p.key===a.plan?'selected':''}>${p.label}</option>`).join('');
+  return `<div draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${a.name}')"
+      class="rounded-lg p-3 bg-slate-800 border border-slate-700 transition cursor-move ${OUT[a.state]||''}">
+      <div class="flex justify-between items-center mb-2">
+        <span class="font-semibold">${a.name}</span>
+        <span class="text-xs px-2 py-0.5 rounded ${C[a.state]||'bg-slate-700'}">${a.state}</span></div>
+      <div class="text-sm text-slate-200">bal ${money(a.balance)}</div>
+      <div class="flex justify-between items-center mt-1">
+        <span class="text-xs text-slate-400">buffer ${money(a.buffer)} · today ${money(a.today)}</span>
+        <button onclick="flat('${a.name}')" class="text-xs px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700">flatten</button>
+      </div>
+      <select onchange="setPlan('${a.name}', this.value)" class="mt-2 w-full bg-slate-700 rounded px-1 py-1 text-xs">${opts}</select>
+    </div>`;
+}
+async function setPlan(acct, plan){
+  await fetch('/api/set_plan',{method:'POST',body:JSON.stringify({account:acct, plan})});
+  tick();
+}
+async function drop(ev, plan){
+  ev.preventDefault();
+  const acct = ev.dataTransfer.getData('text/plain');
+  if(acct) await setPlan(acct, plan);
 }
 async function fire(){
   const body = {strat: fStrat.value, direction: fDir.value, stop_pts: parseFloat(fStop.value)};
@@ -303,17 +415,21 @@ async function tick(){
                     : '<span class="text-slate-500">no accounts ready</span>')+
     (r.actives.length ? `<span class="text-slate-400 text-sm">+ copying: ${r.actives.join(', ')}</span>` : '')+
     `</div>`;
-  document.getElementById('watched').innerHTML = (s.watched||[]).map(a=>`
-    <div class="rounded-lg p-3 bg-slate-800 border border-slate-700 transition ${OUT[a.state]||''}">
-      <div class="flex justify-between items-center mb-2">
-        <span class="font-semibold">${a.name}</span>
-        <span class="text-xs px-2 py-0.5 rounded ${C[a.state]||'bg-slate-700'}">${a.state}</span></div>
-      <div class="text-sm text-slate-200">bal ${money(a.balance)}</div>
-      <div class="flex justify-between items-center mt-1">
-        <span class="text-xs text-slate-400">buffer ${money(a.buffer)} · today ${money(a.today)}</span>
-        <button onclick="flat('${a.name}')" class="text-xs px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700">flatten</button>
+  const plans = s.plans || [];
+  const byPlan = {};
+  (s.watched||[]).forEach(a=>{ (byPlan[a.plan]=byPlan[a.plan]||[]).push(a); });
+  document.getElementById('evalSections').innerHTML = plans.map(p=>{
+    const accts = byPlan[p.key]||[];
+    return `<div class="mb-5" ondragover="event.preventDefault()" ondrop="drop(event,'${p.key}')">
+      <div class="flex items-baseline gap-2 mb-2">
+        <h3 class="text-base font-semibold text-slate-200">${p.label}</h3>
+        <span class="text-xs text-slate-500">cap ${money(p.day_cap)} · pass ${money(p.target)} · ${accts.length} acct(s)</span>
       </div>
-    </div>`).join('') || '<div class="text-slate-500 col-span-3">no watched accounts in /accounts</div>';
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3 rounded-lg border border-dashed border-slate-700 p-2 min-h-[64px]">
+      ${accts.map(a=>evalCard(a, plans)).join('') ||
+        '<div class="text-slate-600 col-span-3 text-sm text-center py-3">drop accounts here</div>'}
+      </div></div>`;
+  }).join('') || '<div class="text-slate-500">no eval accounts detected</div>';
   const f = s.funded || {gambling:[], milking:[]};
   const fcard = (a,b)=>`<div class="rounded-lg p-3 bg-slate-800 border ${b}"><div class="font-semibold">${a.name}</div>`+
     `<div class="text-sm text-slate-200 mt-1">bal ${money(a.balance)}</div>`+
