@@ -394,10 +394,17 @@ def run_live(execute_to_nt8: bool = False,
                     "FB": 1.00,   # 5.00 MNQ equivalent
                 },
                 sl_pts_per_strat={
-                    "OD": 600.0,  # worst MAE 543 pt + 57 margin
-                    "B2": 600.0,  # worst MAE 550 pt + 50 margin
-                    "RV": 200.0,  # worst MAE 150 pt + 50 margin
-                    "FB": 150.0,  # worst MAE 100 pt + 50 margin
+                    # DISASTER BACKSTOP ONLY. The Python backend's natural exit (strategy stop /
+                    # force-close) closes every trade normally; this broker SL just survives a
+                    # bot/connection death. Set to clear each strat's WORST 5yr INTRABAR MAE (pts)
+                    # so it can NEVER fire before the natural exit. (Prior values used MAE-to-exit,
+                    # which undercounts intrabar spikes -> FB's 150 tagged a spike on a recovering
+                    # trade.) Source: scripts/cfd prop firms/_risknorm_trades.csv (mae_pts).
+                    "OD": 600.0,  # worst intrabar MAE 278 pt -> 600 already clears w/ room
+                    "B2": 600.0,  # worst intrabar MAE 308 pt -> 600 already clears
+                    "RV": 400.0,  # non-crash worst 369 pt (was 200, too tight). 2025-04-07 crash
+                                  #   811 pt is moot: 0.75 lot breaches the 3% day cap by ~400 pt anyway
+                    "FB": 350.0,  # worst intrabar MAE 311 pt (was 150 = the early-stop bug)
                 },
             )
             mt5_cbs = mt5x.get_callbacks(eng["RV"], eng["B2"], eng["OD"], eng["FB"])

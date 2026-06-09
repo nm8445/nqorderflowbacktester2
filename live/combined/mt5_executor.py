@@ -61,9 +61,11 @@ from live.combined.config import ET_TZ
 DEFAULT_LOTS = {"OD": 0.01, "B2": 0.01, "RV": 0.01, "FB": 0.01}
 
 # Disaster SL distances per strategy (NDX/NQ points — they move 1:1).
-# Used when the strategy doesn't provide its own SL price (B2, OD).
-# For RV/Fabio: only used if strategy SL price is missing.
-DEFAULT_SL_PTS = {"OD": 600.0, "B2": 600.0, "RV": 200.0, "FB": 150.0}
+# DISASTER BACKSTOP ONLY — the Python backend's natural exit closes trades normally; this only
+# protects against a bot/connection death. Set to clear each strat's WORST 5yr INTRABAR MAE (pts)
+# so it can never fire before the natural exit (a tick-touch SL must clear intrabar spikes, not just
+# MAE-to-exit). Source: scripts/cfd prop firms/_risknorm_trades.csv. Live runner overrides per firm.
+DEFAULT_SL_PTS = {"OD": 600.0, "B2": 600.0, "RV": 400.0, "FB": 350.0}
 
 # Magic numbers per strategy (for filtering positions in MT5 audit)
 MAGIC = {"OD": 30001, "B2": 30002, "RV": 30003, "FB": 30004}
