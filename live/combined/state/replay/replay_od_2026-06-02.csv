@@ -1,0 +1,2 @@
+entry_ts,direction,entry,exit_ts,exit,reason,qty
+2026-06-01 19:00:00-04:00,LONG,30462.75,2026-06-01 20:00:00-04:00,30400.0,SL_YELLOW,1

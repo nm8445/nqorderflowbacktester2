@@ -39,11 +39,22 @@ def _broadcast_async(payload: dict) -> None:
 
 
 def make_farm_cb(strat: str, engine):
-    """Downstream callback that mirrors ENTRY signals to the farm. Any error is swallowed —
+    """Downstream callback that mirrors ENTRY and EXIT signals to the farm. Any error is swallowed —
     the coordinator must never be affected by the farm."""
     def cb(sig):
         try:
-            if not ENABLED or getattr(sig, "event", None) != "ENTRY":
+            if not ENABLED:
+                return
+            event = getattr(sig, "event", None)
+            direction = sig.direction.name if hasattr(sig.direction, "name") else str(sig.direction)
+            # ---- EXIT: forward so the farm can close backend-managed MILK legs, and force-close
+            # gamblers + milkers (+ eval-takers) on a session force-close. The reason drives
+            # milk-only vs close-everyone farm-side (force-close = force_close/FORCE_CLOSE/EOD). ----
+            if event == "EXIT":
+                _broadcast_async({"event": "EXIT", "strat": strat, "direction": direction,
+                                  "reason": getattr(sig, "reason", "") or ""})
+                return
+            if event != "ENTRY":
                 return
             pos = getattr(engine, "position", None)
             if pos is None:
@@ -54,8 +65,27 @@ def make_farm_cb(strat: str, engine):
             stop_pts = abs(float(sig.price) - float(stop))
             if stop_pts <= 0:
                 return
-            direction = sig.direction.name if hasattr(sig.direction, "name") else str(sig.direction)
-            _broadcast_async({"strat": strat, "direction": direction, "stop_pts": round(stop_pts, 2)})
+            sign = 1 if str(direction).upper() == "LONG" else -1
+            # Signal-anchored ABSOLUTE bracket for GAMBLERS / EVAL-TAKERS (static 1:1, eval-mode
+            # run-to-completion): SL = the engine's stop (RV 2xATR / OD+B2 initial yellow / FB ORB_Low);
+            # TP = a 1:1 level off the ENTRY SIGNAL price. RV's 1:1 == its native target; OD/B2/FB forced.
+            payload = {"event": "ENTRY", "strat": strat, "direction": direction,
+                       "stop_pts": round(stop_pts, 2), "sl_price": round(float(stop), 2)}
+            tgt = getattr(pos, "target_price", None) if strat == "RV" else None
+            payload["tp_price"] = (round(float(tgt), 2) if tgt is not None
+                                   else round(float(sig.price) + sign * stop_pts, 2))
+            # NATIVE levels so MILK routes can mirror :8081 shapes (built farm-side, per strat):
+            #   B2 -> green (resting TP, no SL); FB -> native TP (1:4). RV native target already in
+            #   tp_price; OD rests nothing. A missing level -> farm falls back to bracket().
+            if strat == "B2":
+                green = getattr(pos, "green_val", None)
+                if green is not None:
+                    payload["green"] = round(float(green), 2)
+            elif strat == "FB":
+                fbtp = getattr(pos, "tp_price", None)
+                if fbtp is not None:
+                    payload["fb_tp"] = round(float(fbtp), 2)
+            _broadcast_async(payload)
         except Exception:
             pass
     return cb

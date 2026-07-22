@@ -28,6 +28,21 @@ import time
 from pathlib import Path
 
 THIS_DIR = Path(__file__).resolve().parent
+THETA_HOST, THETA_PORT = "127.0.0.1", 25503
+PARQUET = Path("D:/trading_pythonbacktest_data/menthorq_levels_nq.parquet")
+
+
+def terminal_up(host: str = THETA_HOST, port: int = THETA_PORT, timeout: float = 4.0) -> bool:
+    """True if the ThetaData Terminal is accepting connections on :25503. The downloaders swallow
+    connection errors and still exit 0, so without this pre-flight the daily task reports false
+    success while fetching nothing — exactly what the 2026-06-10 Windows-update reboot caused (it
+    killed the Terminal, which doesn't auto-restart, and froze the levels at the 06-08 settle)."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def run_step(name: str, cmd: list[str]) -> bool:
@@ -69,6 +84,14 @@ def main() -> int:
     end_date = (dt.date.fromisoformat(args.end_date) if args.end_date
                 else dt.date.today())
     print(f"Daily gamma pipeline. Target end date: {end_date}")
+
+    # Pre-flight: the Terminal must be up, else the downloaders no-op silently and the task reports
+    # false success. Fail loudly (non-zero) so Task Scheduler shows an error instead of a green run.
+    if not terminal_up():
+        print(f"\n*** ABORT: ThetaData Terminal not reachable at {THETA_HOST}:{THETA_PORT}.")
+        print(f"*** Launch it (java -jar C:\\ThetaTerminal\\ThetaTerminalv3.jar) and re-run.")
+        print(f"*** Gamma levels were NOT updated.")
+        return 2
 
     # Patch download scripts' END dates so they fetch through the requested day
     update_end_date(THIS_DIR / "download_qqq_eod.py", end_date)
@@ -121,6 +144,32 @@ def main() -> int:
     if not run_step("Incremental gamma refresh (multi-source settles)",
                     [sys.executable, str(LIVE_REFRESH)]):
         return 1
+
+    # Post-flight: confirm the parquet advanced to the last COMPLETED trading day. A silent feed failure
+    # (ThetaData HTTP 478 'Invalid session ID' from a duplicate terminal, a down feed, an API change)
+    # yields 0 new rows; the old calendar-day tolerance (MAX_STALE_DAYS=4) masked exactly that over a
+    # weekend (e.g. parquet stuck at Fri while Mon's data was missing). Now we check against the previous
+    # WEEKDAY — whose EOD greeks publish ~8am today — and surface rows_added so a stuck feed FAILS loudly.
+    try:
+        import pandas as pd, json as _json
+        latest = pd.Timestamp(pd.read_parquet(PARQUET, columns=["date"])["date"].max()).date()
+        expected = end_date - dt.timedelta(days=1)        # last weekday strictly before today
+        while expected.weekday() >= 5:                    # skip Sat/Sun (holidays not modeled — a rare
+            expected -= dt.timedelta(days=1)              # post-holiday false-positive beats silent pass)
+        last_refresh = THIS_DIR.parents[2] / "live" / "combined" / "state" / "last_gamma_refresh.json"
+        try:
+            rows_added = _json.loads(last_refresh.read_text()).get("rows_added")
+        except Exception:
+            rows_added = None
+        if latest < expected:
+            print(f"\n*** FAIL: parquet latest is {latest}, but the last completed trading day is {expected}.")
+            print(f"*** gamma_refresh added {rows_added} row(s) this run — {expected}'s greeks were NOT ingested.")
+            print(f"*** A down or DUPLICATE ThetaData Terminal (HTTP 478 'Invalid session ID') silently yields")
+            print(f"*** 0 rows. Ensure exactly ONE terminal is serving, then re-run run_daily.py.")
+            return 3
+        print(f"  parquet current through {latest} (>= last trading day {expected}; +{rows_added or 0} row(s) this run)")
+    except Exception as e:
+        print(f"  [post-check] could not verify parquet freshness: {e}")
 
     print(f"\n{'='*70}\nDAILY PIPELINE COMPLETE — gamma levels current through {end_date}\n{'='*70}")
     return 0

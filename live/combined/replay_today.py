@@ -69,7 +69,17 @@ def fetch_session_ticks(date: dt.date, use_cache: bool = True) -> pd.DataFrame:
     now_safe = pd.Timestamp.now(tz=ET_TZ) - pd.Timedelta(minutes=35)
     if now_safe < end_et:
         end_et = now_safe
-        print(f"  [replay] end clipped to {end_et} (Databento 30-min delay)")
+        print(f"  [replay] end clipped to {end_et} (Databento ~30-min delay)")
+    # The publish delay varies and can exceed 35 min; clip to the dataset's real available end so
+    # we never request past it (else Databento 422s the whole query).
+    try:
+        rng = client.metadata.get_dataset_range(dataset=DATABENTO_DATASET)
+        avail_end = pd.Timestamp(rng["end"]).tz_convert(ET_TZ)
+        if avail_end < end_et:
+            end_et = avail_end
+            print(f"  [replay] end clipped to available data end {end_et}")
+    except Exception as e:
+        print(f"  [replay] could not read dataset range ({e}); using time-based clip")
 
     print(f"  [replay] fetching {start_et.strftime('%Y-%m-%d %H:%M ET')} -> "
           f"{end_et.strftime('%Y-%m-%d %H:%M ET')}...")

@@ -65,14 +65,20 @@ def build_outcomes(risk, tp_cap=1500.):
         fc = pd.Timestamp(fc_date, tz=ET) + pd.Timedelta(hours=FORCE[s][0], minutes=FORCE[s][1])
         st = int(np.searchsorted(idx, f, "right")); en = int(np.searchsorted(idx, np.int64(fc.value), "right")) - 1
         if en < st: continue
-        out = None
+        out = None; worst_adv = 0.0                 # worst adverse excursion (R fraction, <= 0)
         for j in range(st, en + 1):
             if lng:
+                adv = (lo[j] - entry) / stop
                 hsl, htp = lo[j] <= sl, hi[j] >= tp
             else:
+                adv = (entry - hi[j]) / stop
                 hsl, htp = hi[j] >= sl, lo[j] <= tp
+            if adv < worst_adv: worst_adv = adv     # track the deepest floating dip up to resolution
             if hsl: out = "SL"; break          # same-bar tie -> SL (conservative)
             if htp: out = "TP"; break
+        # mae = worst floating $ over the hold (>= -risk; a winner/partial that dipped deep still
+        # blows a tight-DD account mid-trade even though its REALIZED g is positive).
+        mae = max(worst_adv, -1.0) * risk
         if out == "TP":
             g = tp_cap
         elif out == "SL":
@@ -80,14 +86,21 @@ def build_outcomes(risk, tp_cap=1500.):
         else:
             pr = (cl[en] - entry) * (1 if lng else -1) / stop
             g = float(np.clip(pr, -1.0, tp_frac)) * risk; out = "PARTIAL"
-        rows.append((s, out, g))
-    return pd.DataFrame(rows, columns=["strat", "outcome", "g"])
+        rows.append((s, out, g, mae))
+    return pd.DataFrame(rows, columns=["strat", "outcome", "g", "mae"])
 
 
-def sim(pool, rng, max_days=40):
+def sim(pool, rng, max_days=40, mae_aware=True):
+    """pool = array of (realized_g, mae_$) rows. mae_aware=True checks the trade's worst floating
+    dip against the trailing floor BEFORE settling (real firm rule) — so a would-be winner that
+    dips through a tight remaining-DD blows the account mid-trade. mae_aware=False = realized-only
+    (the optimistic model that ignores mid-trade excursion)."""
     bal = 50000.; peak = 50000.; floor = 48000.; n = len(pool)
     for d in range(max_days):
-        bal += pool[rng.integers(0, n)]
+        g, mae = pool[rng.integers(0, n)]
+        if mae_aware and bal + mae <= floor:        # floating dip breaches the floor -> blown mid-trade
+            return "blow", d + 1
+        bal += g
         if bal <= floor: return "blow", d + 1
         if bal - 50000. >= 3000.: return "pass", d + 1
         if bal > peak: peak = bal
@@ -95,25 +108,34 @@ def sim(pool, rng, max_days=40):
     return "timeout", max_days
 
 
+N_ACCT = 10   # user's cohort size (decorrelated 1-account-per-signal -> i.i.d. per account)
+
+
 def main():
     for risk, tp_cap, lbl in [(2000., 1500., "50% consist"), (1500., 1500., "50% consist"),
                               (1200., 1200., "40% consist")]:
         df = build_outcomes(risk, tp_cap)
         wdays = int(np.ceil(3000. / tp_cap))      # winning days needed to reach +$3k
+        wr = (df.g > 0).mean()                     # win rate = fraction of trades net-positive
         print(f"\n===== {lbl}: stop ${risk:.0f}=1R, TP cap +${tp_cap:.0f}={tp_cap/risk:.2f}R, "
-              f"need {wdays} win days, DD $2k =====")
-        print(f"{'strat':>5} {'n':>5} {'TP%':>6} {'SL%':>6} {'PART%':>6} {'avg $':>7}")
+              f"need {wdays} win days, DD $2k | WR {wr*100:.1f}% =====")
+        print(f"{'strat':>5} {'n':>5} {'TP%':>6} {'SL%':>6} {'PART%':>6} {'avg $':>7} {'avg MAE$':>9}")
         for s in ["OD", "RV", "B2", "FB", "ALL"]:
             m = df if s == "ALL" else df[df.strat == s]
             tp = (m.outcome == "TP").mean(); sl = (m.outcome == "SL").mean(); pa = (m.outcome == "PARTIAL").mean()
-            print(f"{s:>5} {len(m):>5} {tp*100:>5.0f}% {sl*100:>5.0f}% {pa*100:>5.0f}% {m.g.mean():>+7.0f}")
-        pool = df.g.values
-        rng = np.random.default_rng(7)
-        res = [sim(pool, rng) for _ in range(50000)]
-        outs = np.array([x[0] for x in res]); dys = np.array([x[1] for x in res])
-        p = (outs == "pass").mean()
-        print(f"  Per-account: PASS {p*100:.1f}%  BLOW {np.mean(outs=='blow')*100:.1f}%  "
-              f"med days-to-pass {int(np.median(dys[outs=='pass']))}  => of 10: {10*p:.1f} pass")
+            print(f"{s:>5} {len(m):>5} {tp*100:>5.0f}% {sl*100:>5.0f}% {pa*100:>5.0f}% "
+                  f"{m.g.mean():>+7.0f} {m.mae.mean():>+9.0f}")
+        pool = df[["g", "mae"]].values
+        for label, aware in (("MAE-aware (real firm rule)", True), ("realized-only (optimistic)", False)):
+            rng = np.random.default_rng(7)         # same seed both ways -> apples-to-apples
+            res = [sim(pool, rng, mae_aware=aware) for _ in range(50000)]
+            outs = np.array([x[0] for x in res]); dys = np.array([x[1] for x in res])
+            p = (outs == "pass").mean()
+            md = int(np.median(dys[outs == "pass"])) if (outs == "pass").any() else 0
+            # how many of N_ACCT pass, and P(>=1) — cohort view
+            exp_pass = N_ACCT * p
+            print(f"  {label:28s}: PASS {p*100:5.1f}%  BLOW {np.mean(outs=='blow')*100:5.1f}%  "
+                  f"med days {md:>3}  => of {N_ACCT}: {exp_pass:.1f} expected pass")
 
 
 if __name__ == "__main__":

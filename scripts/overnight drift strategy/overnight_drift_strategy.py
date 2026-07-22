@@ -63,6 +63,17 @@ class StrategyParams:
     trail_down_step: float = 1.0  # pts/bar yellow eases down on adverse (red) bars
     max_room_pts: float = 70.0    # hard floor: yellow never drops below entry - this
 
+    # Bearish giveback (Pine port). Layered ON TOP of the up-ratchet yellow_mode
+    # (pure_ratchet / drift_floor / raw_atr): on a bar FOLLOWING a bearish candle,
+    # yellow retreats a fraction of the gap between prev_yellow and raw_yellow
+    # instead of ratcheting up, giving the trade room after a red bar. Active only
+    # when yellow_giveback > 0 (0 == exact v4 behavior, no giveback). Does not apply
+    # to the experimental breathing_trail / bearish_drift modes.
+    yellow_giveback: float = 0.0        # fraction of the (prev_yellow - raw_yellow) gap to give back
+    scale_by_body: bool = True          # multiply giveback by min(1, prev_bearish_body / ATR)
+    max_giveback_atr: float = 0.75      # hard cap on single-bar retreat, in ATR multiples
+    giveback_min_gap_atr: float = 0.0   # floor: yellow never below raw_yellow + this*ATR (keeps stop hittable)
+
     # Green (target) — REVERTED to original live production config
     green_atr_len: int = 14
     green_atr_mult: float = 1.00            # original live
@@ -238,7 +249,28 @@ def run_backtest(bars: pd.DataFrame, params: StrategyParams = StrategyParams()) 
 
             # Bands for this bar
             raw_yellow = c - params.yellow_atr_mult * ay if not np.isnan(ay) else np.nan
-            if params.yellow_mode == "pure_ratchet":
+
+            # Bearish giveback (Pine port): on a bar FOLLOWING a bearish candle,
+            # retreat instead of ratcheting up. Keyed off the PREVIOUS bar so the
+            # current candle is always tested against a yellow that hasn't already
+            # backed out of its own way. Only engaged when yellow_giveback > 0 and
+            # the base mode is an up-ratchet one (not breathing_trail/bearish_drift).
+            giveback_on = (
+                params.yellow_giveback > 0.0
+                and params.yellow_mode in ("pure_ratchet", "drift_floor", "raw_atr")
+            )
+            prev_bearish = i >= 1 and close_a[i - 1] < open_a[i - 1]
+            if giveback_on and prev_bearish and bars_in_trade >= 1 and not np.isnan(raw_yellow):
+                # Pine: prev_yellow_internal = nz(yellow_val[1], raw_yellow)
+                pyi = prev_yellow if not np.isnan(prev_yellow) else raw_yellow
+                gap = max(0.0, pyi - raw_yellow)
+                frac = params.yellow_giveback
+                if params.scale_by_body and ay > 0:
+                    body = open_a[i - 1] - close_a[i - 1]
+                    frac *= min(1.0, body / ay)
+                retreat = min(gap * frac, params.max_giveback_atr * ay)
+                yellow_val = pyi - retreat   # floor applied once, after the mode chain
+            elif params.yellow_mode == "pure_ratchet":
                 cand = max(prev_yellow if not np.isnan(prev_yellow) else raw_yellow, raw_yellow) \
                     if not np.isnan(raw_yellow) else np.nan
                 yellow_val = cand
@@ -277,6 +309,12 @@ def run_backtest(bars: pd.DataFrame, params: StrategyParams = StrategyParams()) 
                     yellow_val = max(target, hard_floor)   # never looser than the hard floor
             else:  # raw_atr
                 yellow_val = raw_yellow
+
+            # Giveback hard floor: with giveback engaged, yellow is never tighter
+            # than raw_yellow + giveback_min_gap_atr*ATR on ANY bar (Pine applies
+            # this unconditionally inside the in-trade block).
+            if giveback_on and not np.isnan(raw_yellow) and not np.isnan(yellow_val):
+                yellow_val = max(yellow_val, raw_yellow + params.giveback_min_gap_atr * ay)
 
             red_val = entry_price + params.red_intercept + params.red_drift * bars_in_trade
             green_val = (

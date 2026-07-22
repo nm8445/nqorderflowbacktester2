@@ -14,6 +14,7 @@
 //   POST /order                — {account, strat, direction, qty, instrument?, tag?,
 //                                 slPts?/tpPts? (distance, bracket off the fill) OR slPrice?/tpPrice? (absolute)}
 //   POST /close                — {account, tag, reason?}
+//   POST /heartbeat            — farm-brain liveness ping; if it stops, watchdog flattens ALL tracked positions
 //   GET  /status               — server diagnostic
 //
 // Install: copy to Documents\NinjaTrader 8\bin\Custom\AddOns\, compile, then
@@ -64,6 +65,20 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             "SimEval1", "SimEval2", "SimEval3", "SimEval4", "SimEval5"
         };
+        // Account-name PREFIXES that are also tradeable: Lucid Flex evals (LFE...) + sim funded test
+        // accounts (Simfunded...). The real MFF funded + live accounts never match these, so they
+        // stay hard-blocked. Add the Lucid FUNDED prefix here too once those accounts exist.
+        private readonly string[] orderWhitelistPrefixes = { "LFE", "Simfunded" };
+
+        // Order/close/flatten gate: an exact-whitelisted name OR a name with an allowed prefix.
+        private bool IsTradeAllowed(string account)
+        {
+            if (string.IsNullOrEmpty(account)) return false;
+            if (orderWhitelist.Contains(account)) return true;
+            foreach (var pre in orderWhitelistPrefixes)
+                if (account.StartsWith(pre)) return true;
+            return false;
+        }
         private string instrumentName = "MNQ";   // default order ROOT; Resolve() appends the front month
 
         private class TaggedPosition
@@ -77,6 +92,17 @@ namespace NinjaTrader.NinjaScript.AddOns
         // keyed by "account|tag" so one signal copied across accounts tracks separately
         private ConcurrentDictionary<string, TaggedPosition> openPositions =
             new ConcurrentDictionary<string, TaggedPosition>();
+
+        // ============== Heartbeat watchdog ==============
+        // The farm brain (live/farm/app.py) pings POST /heartbeat every loop (~3s). If it goes silent for
+        // HEARTBEAT_TIMEOUT_SEC (farm or coordinator crashed / was killed), flatten EVERY farm-tracked
+        // position so a backend-managed milk leg — OD (no resting order) or B2 (green-TP only) — can't sit
+        // open unmanaged. One-shot per stale episode; re-arms when the farm pings again. Mirrors :8081.
+        private readonly object heartbeatLock = new object();
+        private DateTime lastHeartbeat = DateTime.MinValue;
+        private bool heartbeatSeen = false;
+        private Timer watchdogTimer;
+        private readonly int HEARTBEAT_TIMEOUT_SEC = 30;
 
         protected override void OnStateChange()
         {
@@ -172,6 +198,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 listenerThread.Start();
 
                 uiTimer = new Timer(_ => RefreshAccountsLabel(), null, 0, 3000);  // live UI snapshot
+                lock (heartbeatLock) { heartbeatSeen = false; lastHeartbeat = DateTime.MinValue; }  // don't flatten pre-first-ping
+                watchdogTimer = new Timer(_ => CheckHeartbeats(), null, 10000, 10000);  // farm-liveness watchdog
 
                 uiDispatcher?.BeginInvoke(new Action(() =>
                 {
@@ -181,7 +209,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                     stopButton.IsEnabled = true;
                 }));
                 string wl = string.Join(", ", orderWhitelist);
-                Log($"TEST server started on :{serverPort} - front month {FrontMonth()} - whitelist: {wl}");
+                string wlp = string.Join(", ", orderWhitelistPrefixes);
+                Log($"TEST server started on :{serverPort} - front month {FrontMonth()} - whitelist: {wl} - prefixes: {wlp}*");
             }
             catch (Exception ex)
             {
@@ -194,6 +223,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             isRunning = false;
             try { uiTimer?.Dispose(); } catch { }
             uiTimer = null;
+            try { watchdogTimer?.Dispose(); } catch { }
+            watchdogTimer = null;
             try { httpListener?.Stop(); } catch { }
             try { httpListener?.Close(); } catch { }
             httpListener = null;
@@ -246,6 +277,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     SendJson(ctx, $"{{\"running\":{isRunning.ToString().ToLower()},\"port\":{serverPort}," +
                                   $"\"phase\":\"1 (orders, whitelisted)\",\"open_positions\":{openPositions.Count}}}");
+                    return;
+                }
+                if (method == "POST" && path == "/heartbeat")
+                {
+                    using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
+                        reader.ReadToEnd();                  // body ignored — the ping itself is the signal
+                    lock (heartbeatLock) { lastHeartbeat = DateTime.Now; heartbeatSeen = true; }
+                    SendJson(ctx, "{\"ok\":true}");
                     return;
                 }
                 if (method == "POST" && (path == "/order" || path == "/close" || path == "/flatten"))
@@ -370,8 +409,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             return (string.IsNullOrEmpty(name) || name.Contains(" ")) ? name : name + " " + FrontMonth();
         }
 
-        // Front quarterly contract (Mar/Jun/Sep/Dec) as "MM-YY": the nearest whose 3rd-Friday expiry
-        // is still > 8 days away; otherwise roll to the next quarter.
+        // Front quarterly contract (Mar/Jun/Sep/Dec) as "MM-YY". NQ/MNQ trades the front quarterly
+        // right up until its 3rd-Friday expiry (this matches the broker/feed — e.g. Topstep & NQ.c.0
+        // were still on Jun on 2026-06-15), so we roll only ROLL_DAYS_BEFORE_EXPIRY day(s) ahead of
+        // expiry. The old -8 (the CME *volume* roll) put us on Sep while everything else was still Jun
+        // -> orders hit the wrong contract ~300 pts off (the 2026-06-15 bug). If your broker rolls a
+        // touch earlier/later than this, bump ROLL_DAYS_BEFORE_EXPIRY — it's the one knob.
+        private const int ROLL_DAYS_BEFORE_EXPIRY = 1;
         private string FrontMonth()
         {
             DateTime now = DateTime.Now;
@@ -380,7 +424,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (int m in q)
                 {
                     int year = now.Year + yo;
-                    if (ThirdFriday(year, m).AddDays(-8) > now)
+                    if (ThirdFriday(year, m).AddDays(-ROLL_DAYS_BEFORE_EXPIRY) > now)
                         return string.Format("{0:00}-{1:00}", m, year % 100);
                 }
             return string.Format("{0:00}-{1:00}", now.Month, now.Year % 100);
@@ -443,7 +487,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string tag = p.ContainsKey("tag") ? p["tag"] : $"{strat}_{DateTime.Now:yyyyMMdd_HHmmss}_{direction}";
 
             // ---- HARD WHITELIST GATE ----
-            if (!orderWhitelist.Contains(account))
+            if (!IsTradeAllowed(account))
             {
                 Log($"REJECT order: '{account}' NOT whitelisted (tag {tag})");
                 return $"{{\"ok\":false,\"error\":\"account not whitelisted\",\"account\":\"{Esc(account)}\"}}";
@@ -554,7 +598,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string tag = p.ContainsKey("tag") ? p["tag"] : null;
             string reason = p.ContainsKey("reason") ? p["reason"] : "";
 
-            if (!orderWhitelist.Contains(account))
+            if (!IsTradeAllowed(account))
             {
                 Log($"REJECT close: '{account}' NOT whitelisted");
                 return $"{{\"ok\":false,\"error\":\"account not whitelisted\"}}";
@@ -576,12 +620,33 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             var p = ParseJson(body);
             string account = p.ContainsKey("account") ? p["account"] : "";
-            if (!orderWhitelist.Contains(account))
+            if (!IsTradeAllowed(account))
             {
                 Log($"REJECT flatten: '{account}' NOT whitelisted");
                 return "{\"ok\":false,\"error\":\"account not whitelisted\"}";
             }
-            return FlattenAccount(account, p.ContainsKey("reason") ? p["reason"] : "manual");
+            string reason = p.ContainsKey("reason") ? p["reason"] : "manual";
+            // Optional "strat" -> flatten ONLY that strat's tracked positions (e.g. RV's 14:45 ET force-
+            // close), leaving other strats running (B2 can still be open). No strat -> whole account.
+            if (p.ContainsKey("strat") && p["strat"].Length > 0)
+                return FlattenStrat(account, p["strat"], reason);
+            return FlattenAccount(account, reason);
+        }
+
+        // Flatten only the tracked positions for ONE strat on one account. Safe on already-closed (SL/TP)
+        // positions: CloseTaggedPosition broker-checks and just untracks when the broker is already flat,
+        // so a stale openPositions entry never triggers a fresh order or an account-wide flatten.
+        private string FlattenStrat(string accountName, string strat, string reason)
+        {
+            int n = 0;
+            foreach (var kv in openPositions.Where(kv => kv.Key.StartsWith(accountName + "|")
+                                                         && kv.Value.Strat == strat).ToList())
+            {
+                CloseTaggedPosition(kv.Value, reason);
+                n++;
+            }
+            Log($"FLATTEN_STRAT {accountName} {strat}: {n} tracked position(s) reason={reason}");
+            return $"{{\"ok\":true,\"note\":\"flattened strat\",\"strat\":\"{Esc(strat)}\",\"closed\":{n}}}";
         }
 
         private string FlattenAccount(string accountName, string reason)
@@ -657,6 +722,32 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Log($"CLOSE ERROR {pos.Account} {pos.Tag}: {ex.Message}");
                 return $"{{\"ok\":false,\"error\":\"{Esc(ex.Message)}\"}}";
             }
+        }
+
+        // ============== Heartbeat watchdog ==============
+        // POST /heartbeat (handled inline in HandleRequest) stamps lastHeartbeat. watchdogTimer calls this
+        // every 10s: if the farm has pinged at least once and then gone silent past HEARTBEAT_TIMEOUT_SEC,
+        // flatten every tracked position — the farm can no longer manage the backend-closed milk legs.
+        // One-shot per stale episode (heartbeatSeen cleared) so it re-arms only on the next ping.
+        private void CheckHeartbeats()
+        {
+            if (!isRunning) return;
+            bool stale;
+            lock (heartbeatLock)
+            {
+                stale = heartbeatSeen && (DateTime.Now - lastHeartbeat).TotalSeconds > HEARTBEAT_TIMEOUT_SEC;
+                if (stale) heartbeatSeen = false;   // don't re-flatten until the farm pings again
+            }
+            if (!stale) return;
+            var toClose = openPositions.Values.ToList();
+            Log($"WATCHDOG: farm heartbeat stale (> {HEARTBEAT_TIMEOUT_SEC}s) — flattening {toClose.Count} tracked position(s)");
+            foreach (var pos in toClose)
+                CloseTaggedPosition(pos, "heartbeat_timeout");
+            uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                statusText.Text = $"Status: HEARTBEAT STALE — flattened {toClose.Count} position(s)";
+                statusText.Foreground = Brushes.OrangeRed;
+            }));
         }
 
         // Live UI snapshot of accounts (every 3s) so you can eyeball it without curl.

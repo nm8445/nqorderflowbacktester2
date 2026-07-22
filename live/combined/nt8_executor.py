@@ -49,6 +49,9 @@ HEARTBEAT_TIMEOUT_SEC = 30   # NT8's threshold for "stale" → flatten
 # regardless of NT8 latency.
 SIGNAL_QUEUE_MAXSIZE = 10_000
 POST_TIMEOUT_SEC = 5.0
+# How often the background thread re-resolves the feed's contract. The ORDER PATH never resolves —
+# it only reads the in-memory value this thread keeps fresh, so live orders have ZERO added latency.
+CONTRACT_REFRESH_SEC = 300
 
 
 @dataclass
@@ -71,6 +74,10 @@ class NT8Executor:
         self.url = url.rstrip("/")
         self.instance_id = instance_id or f"py-{uuid.uuid4().hex[:8]}"
         self.contract = contract
+        self._root = contract.split()[0] if contract else "MNQ"   # "MNQ" / "NQ"
+        # Feed's live contract month, kept fresh by a BACKGROUND thread so the order path never does
+        # I/O. Seed from the on-disk cache (instant, no network); the refresher updates it off-thread.
+        self._contract_code: Optional[str] = self._read_cached_code()
         self.account = account
         self.session = requests.Session()
         self._open: dict[str, _OpenPosition] = {}    # tag -> position
@@ -90,6 +97,9 @@ class NT8Executor:
         # Start poster thread immediately so queue.put_nowait always has a drainer.
         # If the user never calls start_heartbeat(), the poster thread still runs.
         self._start_poster_thread()
+        # Background contract refresher (keeps self._contract_code fresh; never touches the order path).
+        self._contract_thread: Optional[threading.Thread] = None
+        self._start_contract_thread()
 
     # ---------- async POST infrastructure ----------
     def _start_poster_thread(self) -> None:
@@ -157,6 +167,49 @@ class NT8Executor:
             return False
 
     # ---------- order primitives ----------
+    def _order_contract(self) -> str:
+        """ORDER PATH — must be instant. Pure in-memory read of the month the background thread keeps
+        fresh; NO file/network here so live orders have zero added latency. Falls back to the static
+        self.contract (and ultimately the addon's own FrontMonth) if the refresher hasn't populated yet."""
+        code = self._contract_code
+        return f"{self._root} {code}" if code else self.contract
+
+    def _read_cached_code(self) -> Optional[str]:
+        """Seed the in-memory contract from the on-disk cache at startup — file read only, NO network."""
+        try:
+            from live.combined.active_contract import get_active_code
+            return get_active_code(refresh_if_stale=False)
+        except Exception:
+            return None
+
+    def _start_contract_thread(self) -> None:
+        """Start the contract refresher if not already running (idempotent — survives a stop/restart)."""
+        if self._contract_thread is not None and self._contract_thread.is_alive():
+            return
+        self._contract_thread = threading.Thread(target=self._contract_refresh_loop,
+                                                  name="nt8-contract", daemon=True)
+        self._contract_thread.start()
+
+    def _contract_refresh_loop(self) -> None:
+        """Background: re-resolve the feed's contract and update self._contract_code. All Databento I/O
+        happens here, OFF the order path. Resolves immediately on start, then every CONTRACT_REFRESH_SEC."""
+        while not self._stop_event.is_set():
+            try:
+                from live.combined.active_contract import refresh_now
+                info = refresh_now()
+                if info and info.get("code"):
+                    self._contract_code = info["code"]
+                    vstr = "  ".join(f"{k}={v:,}" for k, v in info.get("vols", {}).items())
+                    print(f"[nt8 contract] {datetime.now():%H:%M:%S} | lead by volume {info['raw']} "
+                          f"({info['code']})  [{vstr}]  ->  NT8 orders {self._root} {info['code']}",
+                          flush=True)
+                else:
+                    print(f"[nt8 contract] {datetime.now():%H:%M:%S} | resolve FAILED — keeping "
+                          f"{self._root} {self._contract_code or '(addon FrontMonth fallback)'}", flush=True)
+            except Exception as e:
+                print(f"[nt8 contract] refresh error: {e}", flush=True)
+            self._stop_event.wait(CONTRACT_REFRESH_SEC)
+
     def send_entry(self, strat: str, direction: str, qty: int,
                     sl_price: Optional[float] = None,
                     tp_price: Optional[float] = None,
@@ -179,7 +232,7 @@ class NT8Executor:
             "direction": direction.upper(),
             "quantity": int(qty),
             "order_type": "MARKET",
-            "contract": self.contract,
+            "contract": self._order_contract(),
             "account": self.account,
             "timestamp": ets.strftime("%Y-%m-%d %H:%M:%S %Z"),
         }
@@ -216,6 +269,10 @@ class NT8Executor:
             return False
         self._open.pop(tag, None)
         self.n_exits_sent += 1
+        # Wall-clock ET dispatch time (NOT the engine's bar-stamp) so NT8-vs-MT5 close timing
+        # can be compared apples-to-apples in the console.
+        print(f"  [nt8] CLOSE dispatch {tag} reason={reason} "
+              f"at {pd.Timestamp.now(tz=ET_TZ):%H:%M:%S} ET (wall-clock)")
         return True
 
     # ---------- engine wiring ----------
@@ -258,18 +315,18 @@ class NT8Executor:
                     entry_ts=sig.timestamp, entry_price=sig.price,
                 )
             elif sig.event == "EXIT":
-                if sig.reason == "TP_FIXED":
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "B2" and op.direction == d:
-                            self._open.pop(tag, None)
-                            self.n_exits_sent += 1
-                            print(f"  [nt8] B2 TP_FIXED — NT8 already filled resting limit; tag cleared locally: {tag}")
-                            break
-                else:
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "B2" and op.direction == d:
-                            self.send_close_tag(tag, sig.reason)
-                            break
+                # Always send CLOSE_TAG, including TP_FIXED. The old code assumed NT8's resting
+                # green limit had already filled and just cleared the tag locally — but if that
+                # limit did NOT fill (NT8 feed/contract diverged from Databento, e.g. across a
+                # roll), the position was orphaned and had to be closed by hand (2026-06-30).
+                # CLOSE_TAG is safe to send unconditionally: the addon's CloseTaggedPosition
+                # checks the broker's actual position first — if the resting limit already filled
+                # (broker flat), it aborts to a no-op and cancels orphan orders; if still open, it
+                # cancels the resting limit and market-closes. No double-close / reversal risk.
+                for tag, op in list(self._open.items()):
+                    if op.strat == "B2" and op.direction == d:
+                        self.send_close_tag(tag, sig.reason)
+                        break
         # ---- OD ----
         def on_od(sig):
             d = "LONG" if sig.direction.name == "LONG" else "FLAT"
@@ -288,17 +345,21 @@ class NT8Executor:
             d = "LONG"
             if sig.event == "ENTRY" and fb.position is not None:
                 p = fb.position
+                # TP-only resting limit (NO resting SL) — the yellow stop is now engine-managed
+                # (bar-close SL_YELLOW), same pattern as B2. sl_price omitted on purpose.
                 self.send_entry(
                     strat="FB", direction=d, qty=sig.qty,
-                    sl_price=p.sl_price, tp_price=p.tp_price,
+                    sl_price=None, tp_price=p.tp_price,
                     entry_ts=sig.timestamp, entry_price=sig.price,
                 )
             elif sig.event == "EXIT":
-                if sig.reason == "EOD":
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "FB":
-                            self.send_close_tag(tag, sig.reason)
-                            break
+                # ALWAYS CLOSE_TAG on any exit (SL_YELLOW / TP / EOD). The addon's CloseTaggedPosition
+                # checks the broker first: no-op if the resting TP already filled (and cancels orphans),
+                # else it CANCELS the resting TP limit and market-closes — so no orphan TP is left behind.
+                for tag, op in list(self._open.items()):
+                    if op.strat == "FB":
+                        self.send_close_tag(tag, sig.reason)
+                        break
         print(f"[nt8] callbacks created for RV+B2+OD+Fabio (coordinator will route)")
         return {"RV": on_rv, "B2": on_b2, "OD": on_od, "FB": on_fb}
 
@@ -359,24 +420,14 @@ class NT8Executor:
                 if tag:
                     tag_by_position[_key("B2", d, sig.timestamp)] = tag
             elif sig.event == "EXIT":
-                # On TP_FIXED, NT8's resting limit already closed the position.
-                # Skip close_tag to avoid sending a double-close (which could
-                # open a NEW opposite-direction position if NT8's accounting is
-                # behind).
-                if sig.reason == "TP_FIXED":
-                    # Just clean up local state — NT8 already handled the exit
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "B2" and op.direction == d:
-                            self._open.pop(tag, None)
-                            self.n_exits_sent += 1
-                            print(f"  [nt8] B2 TP_FIXED — NT8 already filled resting limit; tag cleared locally: {tag}")
-                            break
-                else:
-                    # SL_TRAIL or FORCE_CLOSE — Python needs to actively close
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "B2" and op.direction == d:
-                            self.send_close_tag(tag, sig.reason)
-                            break
+                # Always CLOSE_TAG (incl. TP_FIXED). The addon verifies the broker position
+                # before closing, so this is a no-op if NT8's resting limit already filled and a
+                # real close if it didn't (the orphan-position bug of 2026-06-30). See the live
+                # get_callbacks() on_b2 for the full rationale.
+                for tag, op in list(self._open.items()):
+                    if op.strat == "B2" and op.direction == d:
+                        self.send_close_tag(tag, sig.reason)
+                        break
         b2.subscribe(on_b2)
 
         # ---- OD (Python-managed exits) ----
@@ -424,6 +475,7 @@ class NT8Executor:
         if self._hb_thread is not None and self._hb_thread.is_alive():
             return
         self._stop_event.clear()
+        self._start_contract_thread()   # re-ensure the contract refresher after a stop/restart
 
         def _hb_loop():
             print(f"[nt8] heartbeat thread started ({HEARTBEAT_INTERVAL_SEC}s interval)")

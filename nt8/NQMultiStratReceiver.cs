@@ -58,7 +58,10 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         // ============== Trading config ==============
         private string accountName    = "MFFUSFFLX606768002";
-        private string instrumentName = "MNQ 06-26";
+        // ROOT only ("MNQ"/"NQ"); Resolve() appends the auto front month on EVERY order (no restart
+        // needed across a quarterly roll). A full code with a space (e.g. "MNQ 06-26") is taken as-is,
+        // so a contract can still be pinned manually if ever needed.
+        private string instrumentName = "MNQ";
         private Account trackedAccount = null;
         private NinjaTrader.Cbi.Instrument resolvedInstrument = null;
 
@@ -182,9 +185,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 httpListener.Start();
                 isRunning = true;
 
-                // Resolve instrument + account
+                // Resolve instrument (auto front month) + account
                 trackedAccount = Account.All.FirstOrDefault(a => a.Name == accountName);
-                resolvedInstrument = Instrument.GetInstrument(instrumentName);
+                string resolvedName = Resolve(instrumentName);
+                resolvedInstrument = Instrument.GetInstrument(resolvedName);
 
                 listenerThread = new Thread(ListenLoop) { IsBackground = true, Name = "NQMS-Listener" };
                 listenerThread.Start();
@@ -204,7 +208,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     startButton.IsEnabled = false;
                     stopButton.IsEnabled = true;
                 }));
-                Log($"Server started on port {serverPort}");
+                Log($"Server started on port {serverPort} - front month {resolvedName}");
             }
             catch (Exception ex)
             {
@@ -392,6 +396,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                 OrderAction oaStop  = direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
                 OrderAction oaTgt   = oaStop;
 
+                // Resolve the front month PER ORDER so a quarterly roll is picked up without restarting
+                // the addon. Exits use EntryOrder.Instrument, so a position always closes on the SAME
+                // contract it opened on — correct even if the roll happens while a trade is open.
+                // Prefer the contract the DATA FEED is actually on (nt8_executor sends it as "contract",
+                // resolved live from Databento) so execution can't diverge from the signals across a roll.
+                // Falls back to "instrument", then the addon's own FrontMonth() via instrumentName.
+                string contractReq = p.ContainsKey("contract") ? p["contract"]
+                                   : p.ContainsKey("instrument") ? p["instrument"] : instrumentName;
+                var orderInstr = Instrument.GetInstrument(Resolve(contractReq));
+                if (orderInstr == null)
+                {
+                    Log($"ENTRY {tag}: instrument '{Resolve(contractReq)}' not found — order NOT sent");
+                    return;
+                }
+
                 var pos = new TaggedPosition
                 {
                     Tag = tag, Strat = strat, Direction = direction,
@@ -399,7 +418,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
 
                 pos.EntryOrder = trackedAccount.CreateOrder(
-                    resolvedInstrument, oaEntry, OrderType.Market,
+                    orderInstr, oaEntry, OrderType.Market,
                     OrderEntry.Manual, TimeInForce.Day, qty, 0, 0,
                     "", tag + "_E", DateTime.MaxValue, null);
                 trackedAccount.Submit(new[] { pos.EntryOrder });
@@ -414,7 +433,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     {
                         double tgtPx = double.Parse(p["target_price"]);
                         pos.TargetOrder = trackedAccount.CreateOrder(
-                            resolvedInstrument, oaTgt, OrderType.Limit,
+                            orderInstr, oaTgt, OrderType.Limit,
                             OrderEntry.Manual, TimeInForce.Day, qty, tgtPx, 0,
                             ocoId, tag + "_T", DateTime.MaxValue, null);
                         trackedAccount.Submit(new[] { pos.TargetOrder });
@@ -424,7 +443,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     {
                         double stopPx = double.Parse(p["stop_price"]);
                         pos.StopOrder = trackedAccount.CreateOrder(
-                            resolvedInstrument, oaStop, OrderType.StopMarket,
+                            orderInstr, oaStop, OrderType.StopMarket,
                             OrderEntry.Manual, TimeInForce.Day, qty, 0, stopPx,
                             ocoId, tag + "_S", DateTime.MaxValue, null);
                         trackedAccount.Submit(new[] { pos.StopOrder });
@@ -454,6 +473,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             Log($"CLOSE {pos.Tag} reason={reason}");
             try
             {
+                // Close on the contract the position was OPENED on (survives a roll mid-trade); fall
+                // back to the startup-resolved instrument if the entry order is somehow missing.
+                var posInstr = pos.EntryOrder?.Instrument ?? resolvedInstrument;
                 // SAFETY VALIDATION (added 2026-05-27):
                 // Before submitting a close order, verify the broker actually has
                 // an open position in the same direction. If not (e.g., user
@@ -461,7 +483,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // with no offsetting position becomes a NEW opening trade — opens
                 // a long when we meant to close a short, or vice versa.
                 var brokerPos = trackedAccount.Positions
-                    .FirstOrDefault(p => p.Instrument == resolvedInstrument);
+                    .FirstOrDefault(p => p.Instrument == posInstr);
                 MarketPosition brokerSide = brokerPos == null
                     ? MarketPosition.Flat
                     : brokerPos.MarketPosition;
@@ -500,7 +522,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // Send market exit
                 OrderAction oa = pos.Direction == "LONG" ? OrderAction.Sell : OrderAction.BuyToCover;
                 var closeOrder = trackedAccount.CreateOrder(
-                    resolvedInstrument, oa, OrderType.Market,
+                    posInstr, oa, OrderType.Market,
                     OrderEntry.Manual, TimeInForce.Day, closeQty, 0, 0,
                     "", pos.Tag + "_X", DateTime.MaxValue, null);
                 trackedAccount.Submit(new[] { closeOrder });
@@ -550,6 +572,40 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
         }
 
+        // ============== Front-month resolution (keep in sync with NQMultiStratReceiverTest.cs) ==============
+        // Resolve a root ("NQ"/"MNQ") to the full front-month code ("MNQ 06-26"); pass-through if it
+        // already has an expiry (contains a space, e.g. a manual pin). Called per ORDER (entry resolves
+        // live; exits use the position's own EntryOrder.Instrument), so a roll needs no addon restart.
+        private string Resolve(string name)
+        {
+            return (string.IsNullOrEmpty(name) || name.Contains(" ")) ? name : name + " " + FrontMonth();
+        }
+
+        // Front quarterly contract (Mar/Jun/Sep/Dec) as "MM-YY". Holds the front quarterly right up to
+        // its 3rd-Friday expiry (matches Databento NQ.c.0 + the broker), rolling ROLL_DAYS_BEFORE_EXPIRY
+        // day(s) ahead. NOT the ~8-day CME volume roll (which traded the wrong contract — 2026-06-15 bug).
+        private const int ROLL_DAYS_BEFORE_EXPIRY = 1;
+        private string FrontMonth()
+        {
+            DateTime now = DateTime.Now;
+            int[] q = { 3, 6, 9, 12 };
+            for (int yo = 0; yo <= 1; yo++)
+                foreach (int m in q)
+                {
+                    int year = now.Year + yo;
+                    if (ThirdFriday(year, m).AddDays(-ROLL_DAYS_BEFORE_EXPIRY) > now)
+                        return string.Format("{0:00}-{1:00}", m, year % 100);
+                }
+            return string.Format("{0:00}-{1:00}", now.Month, now.Year % 100);
+        }
+
+        private DateTime ThirdFriday(int year, int month)
+        {
+            DateTime d = new DateTime(year, month, 1);
+            int toFri = (((int)DayOfWeek.Friday - (int)d.DayOfWeek) + 7) % 7;
+            return d.AddDays(toFri + 14);
+        }
+
         // ============== STATUS endpoint ==============
         private void SendStatusJson(HttpListenerContext ctx)
         {
@@ -559,7 +615,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             sb.Append($"\"running\":{isRunning.ToString().ToLower()},");
             sb.Append($"\"port\":{serverPort},");
             sb.Append($"\"account\":\"{accountName}\",");
-            sb.Append($"\"instrument\":\"{instrumentName}\",");
+            sb.Append($"\"instrument\":\"{resolvedInstrument?.FullName ?? instrumentName}\",");
             sb.Append($"\"open_positions\":{openTaggedPositions.Count},");
             sb.Append("\"tags\":[");
             sb.Append(string.Join(",", openTaggedPositions.Keys.Select(k => $"\"{k}\"")));

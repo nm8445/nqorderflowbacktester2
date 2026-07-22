@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prop Farm Income Calculator (throughput-real)</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2230; --ink:#e6edf3; --mut:#8b98a8; --line:#2b3647;
+          --grnbg:#10331c; --redbg:#3a1513; --acc:#58a6ff; }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,Arial}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  h1{font-size:20px;margin:0 0 2px} .sub{color:var(--mut);margin:0 0 16px;font-size:13px}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:18px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 12px}
+  label{display:block;margin:9px 0} label span{display:block;font-size:12px;color:var(--mut);margin-bottom:3px}
+  input{width:100%;background:#0d1117;border:1px solid var(--line);color:var(--ink);border-radius:6px;
+    padding:7px 9px;font:inherit} input:focus{outline:none;border-color:var(--acc)}
+  .presets{display:flex;gap:8px;margin-bottom:8px}
+  .presets button{flex:1;background:#222c3c;color:var(--ink);border:1px solid var(--line);border-radius:6px;
+    padding:8px;cursor:pointer;font:inherit} .presets button:hover{border-color:var(--acc)}
+  .hero{display:flex;gap:14px;flex-wrap:wrap;align-items:baseline;margin:4px 0 14px}
+  .card{background:#0d1117;border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+  .card small{display:block;color:var(--mut);font-size:11px;text-transform:uppercase}
+  .big{font-size:28px;font-weight:700}
+  .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border:none} .row .k{color:var(--mut)} .row .v{font-variant-numeric:tabular-nums;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line);font-size:13px}
+  th:first-child,td:first-child{text-align:left} th{color:var(--mut)}
+  .pos{background:var(--grnbg);color:#7ee787} .neg{background:var(--redbg);color:#ff9b95}
+  code{background:#0d1117;padding:1px 5px;border-radius:4px;color:#a5d6ff;font-size:12px}
+  details{margin-top:14px} summary{cursor:pointer;color:var(--mut)}
+  .formula{font-size:12.5px;color:#c9d4e0;line-height:1.85} .note{color:var(--mut);font-size:12px;margin-top:8px}
+</style></head>
+<body><div class="wrap">
+  <h1>Prop Farm Income Calculator</h1>
+  <p class="sub">Throughput-real model: income is capped by <b>signals/day × copies</b>, and the cycle stretches as
+    you add lanes (accounts share the signal stream). Defaults from this session's MC (5-strat, adaptive milk).
+    <b>Eval pass rates are MAE-aware</b> (real firm floating rule) — the earlier 43% was realized-only and
+    ~25% too high (it ignored mid-trade DD blows).</p>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Inputs</h2>
+      <div class="presets">
+        <button onclick="preset('A')">50k A · 2pay</button>
+        <button onclick="preset('B')">50k B · 2pay</button>
+        <button onclick="preset('A3')">50k A · 3pay</button>
+        <button onclick="preset('B3')">50k B · 3pay</button>
+      </div>
+      <div class="presets">
+        <button onclick="preset('k150_5k')">150k · $5k cap</button>
+        <button onclick="preset('k150_3k')">150k · $3k cap</button>
+      </div>
+      <label><span>Signals / day (your algo's avg)</span><input type="number" id="sig" value="3.04" step="0.1"></label>
+      <label><span>Accounts (total bought / cycle)</span><input type="number" id="acct" value="30" step="1"></label>
+      <label><span>Lanes (decorrelated groups)</span><input type="number" id="lanes" value="5" step="1"></label>
+      <label><span>Eval pass rate (%, MAE-aware)</span><input type="number" id="pass" value="34" step="1"></label>
+      <label><span>Funded payout rate (% of funded that collect ≥1 payout)</span><input type="number" id="payrate" value="33" step="1"></label>
+      <label><span>$ per funded account (net, after split — avg incl. $0 blows)</span><input type="number" id="perf" value="974" step="25"></label>
+      <label><span>Gamble trades / cycle (eval+funded, signal-limited)</span><input type="number" id="gtr" value="11" step="1"></label>
+      <label><span>Milk days / cycle (daily, not signal-limited)</span><input type="number" id="milk" value="15" step="1"></label>
+      <label><span>Eval fee ($/account)</span><input type="number" id="fee" value="100" step="5"></label>
+      <label><span>Trading days / year</span><input type="number" id="tdy" value="251" step="1"></label>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Projected annual income</h2>
+        <div class="hero">
+          <div class="card"><small>Annual income</small><span class="big" id="o_annual">—</span></div>
+          <div class="card"><small>Cycle length</small><span class="big" id="o_cyc">—</span></div>
+          <div class="card"><small>Cycles / yr</small><span class="big" id="o_cycyr">—</span></div>
+          <div class="card"><small>Variance (CV)</small><span class="big" id="o_cv">—</span></div>
+        </div>
+        <div class="row"><span class="k">Copies per lane (acct ÷ lanes)</span><span class="v" id="o_copies">—</span></div>
+        <div class="row"><span class="k">Each account trades every…</span><span class="v" id="o_freq">—</span></div>
+        <div class="row"><span class="k">Funded accounts / cycle (acct × pass)</span><span class="v" id="o_fund">—</span></div>
+        <div class="row"><span class="k">↳ Paying accounts / cycle (funded × payout rate)</span><span class="v" id="o_pay">—</span></div>
+        <div class="row"><span class="k">↳ $ per PAYING account (perf ÷ payout rate)</span><span class="v" id="o_perpay">—</span></div>
+        <div class="row"><span class="k">Gross payout / cycle</span><span class="v" id="o_gross">—</span></div>
+        <div class="row"><span class="k">Eval fees / cycle</span><span class="v" id="o_fees">—</span></div>
+        <div class="row"><span class="k">Net / cycle</span><span class="v" id="o_net">—</span></div>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h2>Lane frontier — income vs concentration risk</h2>
+        <table id="frontier"><thead><tr>
+          <th>Lanes</th><th>Copies</th><th>Cycle</th><th>Cyc/yr</th><th>Annual</th><th>CV</th><th>Risk</th>
+        </tr></thead><tbody></tbody></table>
+        <div class="note">Fewer lanes = faster cycle + more income, but higher variance (a bad streak hits a
+          bigger stack). CV ≈ <code>0.34 + 0.95/√lanes</code> (REFIT to the corrected fully-MAE MC; the old
+          <code>0.26 + 0.51/√L</code> was fit to the optimistic 43% model and badly understated risk). With the
+          lower 34%/33% pass/payout rates, <b>red years are now REAL at low lanes</b>: P(losing year) ≈
+          <b>16% @2 lanes, 11% @3, 6% @5, 4% @10, 3% @15</b> (was a fake ~0.6% @5). The bad-year floor (p10)
+          is <i>negative</i> at 2–3 lanes (−$16k @2, −$1k @3) and only turns solidly positive at ~5 lanes
+          (+$6k). Beyond ~5–6 lanes the p10 floor barely rises (~$6–8k) while mean income keeps dropping — so
+          <b>~5–6 lanes is still the sweet spot</b>, now carrying an honest ~6% red-year risk. Go to 10 lanes
+          only if you're red-year-averse (P(loss) 4.4%) and will accept ~$21k/yr less mean income.
+          Source: lane_frontier_mae.py.</div>
+      </div>
+
+      <details open><summary>Formulas (audit the math)</summary>
+        <div class="panel formula" style="margin-top:8px">
+          <code>copies = accounts / lanes</code> &nbsp;(one signal copied to all copies in a lane)<br>
+          <code>cycle_days = gamble_trades × (lanes / signals_day) + milk_days</code> &nbsp;← the gamble is
+            signal-limited; more lanes ⇒ each waits longer ⇒ longer cycle<br>
+          <code>cycles_per_year = trading_days_year / cycle_days</code><br>
+          <code>funded/cycle = accounts × eval_pass</code> &nbsp;(pass the eval gamble)<br>
+          <code>paying/cycle = funded/cycle × payout_rate</code> &nbsp;(survive the FUNDED gamble+milk to ≥1 payout)<br>
+          <code>$per_paying = $per_funded / payout_rate</code> &nbsp;(the avg over funded folds in the $0 blows)<br>
+          <code>gross/cycle = funded/cycle × $per_funded = paying/cycle × $per_paying</code> &nbsp; <code>fees = accounts × eval_fee</code><br>
+          <code>net/cycle = gross − fees</code> &nbsp; <code>annual = net/cycle × cycles_per_year</code><br>
+          <div class="note"><b>Two independent gates, not one.</b> (1) <b>eval_pass 34%</b> = fraction of bought
+            evals that pass. (2) <b>payout_rate ~33%</b> = fraction of FUNDED accounts that ever collect a payout.
+            Both run the SAME MAE-aware $1500 1:1 gamble to +$3k, so the funded buffer-build reaches it at the
+            same ~34% as the eval; milk (5 winning days) barely filters further → payout_rate ≈ eval_pass.
+            So of 30 evals → ~10 funded → only ~3.4 ever pay. <code>$per_funded</code> (~$974, cap 2) is the
+            average across ALL funded <i>including the ~66% that blow at $0</i>; the ~33% that DO pay average
+            ~$2,970 each (≈$per_paying). It's below a single net payout because most funded accounts never
+            reach one. <b>(Earlier a bogus 43%/$1,363 came from scoring the funded gamble realized-only while
+            the eval was MAE-aware — inconsistent; now both gamble AND milk are MAE-aware.)</b> Milk intraday
+            lows barely change it (+0.6% blow) — the gamble is the killer, not the milk. Payout cap varies by
+            firm: <b>cap 3 lifts $per_funded ~+27%</b> ($974→$1,231 A, $1,019→$1,328 B). Per FUNDED, milk-down
+            (B) > re-gamble (A); per YEAR, A > B (faster cycle).
+            $per_funded already nets the 90% split and the 2-payout cap. Structure A re-gambles
+            (faster, bigger payouts each round); B milks down (slower, safer). The throughput cap means buying
+            MORE accounts past your signal capacity doesn't help — raise signals/day instead.</div>
+          <div class="note"><b>Pass rate (34%, 50k) is MAE-aware</b> — the firm blows you the instant your
+            <i>floating</i> equity (balance + open-trade MAE) touches the trailing floor, so a would-be winner
+            that dips through a tight remaining-DD blows the account mid-trade. The old realized-only 43%/45%
+            ignored this and overstated funded conversions ~20-25% (projections ~20% high at fixed evals, or
+            need ~1.25× evals). Recover it with <b>DD-aware buffer sizing</b>: <code>risk = clip(remDD − $900,
+            $100, $1500)</code> lifts a fresh account back to ~42% (avg trade MAE ≈ $900), at the cost of a
+            longer cycle (size down when the cushion is thin). Source: challenge_gamble_pass.py / dd_aware_sizing.py.</div>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const ids=["sig","acct","lanes","pass","payrate","perf","gtr","milk","fee","tdy"];
+const fmt=n=>isFinite(n)?"$"+Math.round(n).toLocaleString():"—";
+const PRESETS={ // A re-gambles (more gamble trades, less milk), B milks-down (fewer gamble, more milk)
+  // 50k ($2k DD, +$3k, $100 fee): pass 34% — MAE-AWARE (real firm floating rule). The OLD 43% was
+  // realized-only/optimistic: it ignored a would-be winner dipping through the tight remaining DD and
+  // blowing the account MID-TRADE. Measured: flat $1500 1:1 realized-only 45% -> MAE-aware 34.1%
+  // (challenge_gamble_pass.py). WR cross-check (sim 54% vs live 51.8%) => true ~32-33%, so 34% is a
+  // mild upper bound. LEVER: DD-aware buffer sizing risk=clip(remDD-$900,100,1500) recovers a fresh
+  // account to ~42% (costs throughput/speed).
+  // FUNDED now MAE-consistent too (a_vs_b.py gamble() + milk are MAE-aware — were realized-only, which
+  // faked a 43% payout rate). Corrected: payout_rate ~33% == the eval reach rate (SAME gamble builds the
+  // funded buffer), and $per_funded ~$974-1019 (cap 2), down from the bogus $1363. $per_funded = avg over
+  // ALL funded incl. the ~66% that blow at $0; the ~33% that pay average ~$2,970 each (cap 2).
+  // Fully MAE-aware (gamble + milk intraday lows), a_vs_b.py. Payout cap varies by firm -> 2pay & 3pay.
+  // Per FUNDED: B (milk-down) > A (re-gamble) — re-gambling throws survivors back into the 34% blow-gauntlet.
+  // Per YEAR: A > B — milking to 5 more winning days is slow, so A cycles faster (throughput narrows it).
+  A:{perf:974,  gtr:11, milk:15, pass:34, payrate:33, fee:100},   // cap 2, re-gamble
+  B:{perf:1019, gtr:8,  milk:20, pass:34, payrate:33, fee:100},   // cap 2, milk-down
+  A3:{perf:1231, gtr:13, milk:17, pass:34, payrate:33, fee:100},  // cap 3, re-gamble  (~$120k/yr)
+  B3:{perf:1328, gtr:8,  milk:28, pass:34, payrate:33, fee:100},  // cap 3, milk-down
+  // 150k ($4.5k DD, +$9k, $300 fee): eval risk $4,000. pass ~30% MAE-aware (est: realized-only 37%
+  // haircut for the same intrabar floating blows; not separately measured). FUNDED = lock-and-milk:
+  // gamble the 5-strat to the +$4,500 lock (51% reach), milk 4-way @ 6 MNQ to +$9k, withdraw min(50%,
+  // cap), x2. $4k cap perf ~2,881 (milk 25d). Bigger milk MNQ -> a bit less $/funded, fewer milk days.
+  k150_5k:{perf:3475, gtr:4, milk:26, pass:30, payrate:51, fee:300},
+  k150_3k:{perf:2211, gtr:4, milk:25, pass:30, payrate:51, fee:300},
+};
+function preset(k){const p=PRESETS[k];for(const f in p)$(f).value=p[f];recompute();}
+function cvOf(L){return 0.34 + 0.95/Math.sqrt(L);}  // REFIT to corrected fully-MAE MC: 2L→1.01, 5L→0.76, 10L→0.64 (old 0.26+0.51/√L understated risk)
+function calc(o){
+  const copies=o.acct/o.lanes;
+  const cycle=o.gtr*(o.lanes/o.sig)+o.milk;
+  const cycyr=o.tdy/cycle;
+  const fund=o.acct*o.pass;
+  const pay=fund*o.payrate;                 // funded accounts that collect >=1 payout
+  const perpay=o.payrate>0?o.perf/o.payrate:0;  // $ per PAYING account (perf is avg incl. $0 blows)
+  const gross=fund*o.perf, fees=o.acct*o.fee, net=gross-fees;
+  return {copies,cycle,cycyr,fund,pay,perpay,gross,fees,net,annual:net*cycyr,cv:cvOf(o.lanes),
+          freq:o.lanes/o.sig};
+}
+function recompute(){
+  const o={sig:+$("sig").value,acct:+$("acct").value,lanes:+$("lanes").value,pass:+$("pass").value/100,
+           payrate:+$("payrate").value/100,perf:+$("perf").value,gtr:+$("gtr").value,milk:+$("milk").value,
+           fee:+$("fee").value,tdy:+$("tdy").value};
+  const r=calc(o);
+  $("o_annual").textContent=fmt(r.annual); $("o_annual").style.color=r.annual>=0?"#7ee787":"#ff9b95";
+  $("o_cyc").textContent=r.cycle.toFixed(0)+" d";
+  $("o_cycyr").textContent=r.cycyr.toFixed(1);
+  $("o_cv").textContent=r.cv.toFixed(2);
+  $("o_copies").textContent=r.copies.toFixed(1);
+  $("o_freq").textContent="every "+r.freq.toFixed(1)+" days";
+  $("o_fund").textContent=r.fund.toFixed(1);
+  $("o_pay").textContent=r.pay.toFixed(1);
+  $("o_perpay").textContent=fmt(r.perpay);
+  $("o_gross").textContent=fmt(r.gross); $("o_fees").textContent=fmt(r.fees);
+  $("o_net").textContent=fmt(r.net);
+  // frontier sweep over lanes
+  const tb=$("frontier").querySelector("tbody"); tb.innerHTML="";
+  for(const L of [2,3,5,6,10]){
+    const rr=calc({...o,lanes:L});
+    const risk=rr.cv>0.75?"high":(rr.cv>0.6?"med":"low");
+    const cls=L===o.lanes?'style="background:#15324a"':'';
+    const annCls=rr.annual<0?'class="neg"':'';
+    tb.innerHTML+=`<tr ${cls}><td>${L}</td><td>${(o.acct/L).toFixed(0)}</td><td>${rr.cycle.toFixed(0)}d</td>`+
+      `<td>${rr.cycyr.toFixed(1)}</td><td ${annCls}>${fmt(rr.annual)}</td><td>${rr.cv.toFixed(2)}</td><td>${risk}</td></tr>`;
+  }
+}
+ids.forEach(id=>$(id).addEventListener("input",recompute));
+recompute();
+</script>
+</body></html>

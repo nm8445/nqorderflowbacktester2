@@ -45,6 +45,7 @@ class EState(Enum):
     FRESH = "FRESH"
     ACTIVE = "ACTIVE"
     DONE = "DONE"
+    MILKING = "MILKING"   # close to passing: out of the $-bracket rotation, milks 1 MNQ 4-strat to target
     BLOWN = "BLOWN"
     PASSED = "PASSED"
 
@@ -68,22 +69,39 @@ class EvalAccount:
     stop_new_at: float = DAY_CAP_50  # day_profit at/above -> DONE (no new trades today)
     target: float = TARGET           # pass threshold
     pass_buffer: float = 0.0         # force-close the final trade at target+buffer
+    consistency: float = 0.5         # firm rule: biggest day must be <= this fraction of total
+    peak_day_profit: float = 0.0     # biggest finalized day's profit -> drives the consistency target
+    milk_at: float = 2800.0          # total >= this (but < true_target) -> eval-milking phase
+    manual_phase: bool = False       # dashboard lock: hold MILKING/ACTIVE, suppress auto milk_at/DONE
+    #                                  transitions (blow/pass still terminal). AUTO releases it.
+    risk_mode: str = "auto"          # per-account risk tier: 'auto' ($750 while buffer < $2k, else day_cap)
+    #                                  | '750' (force tight) | '1500' (force full). Dashboard-settable.
+    manual_blown: bool = False       # dashboard 'mark blown' (firm force-closed) — STICKY: sync skips it
+    #                                  so it can't be revived by the recreated-same-name guard.
+    manual_passed: bool = False      # dashboard 'mark passed' (firm passed it, farm missed it) — STICKY too.
 
     @property
     def total(self) -> float:
         return self.cash - self.start_bal
 
     @property
+    def true_target(self) -> float:
+        """Consistency-adjusted pass target. Passing needs total >= target AND biggest_day <=
+        consistency*total, i.e. total >= max(target, biggest_day / consistency)."""
+        c = self.consistency if self.consistency > 0 else 1.0
+        return max(self.target, self.peak_day_profit / c)
+
+    @property
     def floor(self) -> float:
-        # LIVE: kill level = equity - NT8's remaining DD. SIM: computed EOD-trailing floor.
-        if self.dd_remaining is not None:
-            return self.equity - self.dd_remaining
+        # TRUE EOD-trailing floor from the peak EOD BALANCE (frozen intraday), locked at start+$100 once
+        # banked. We do NOT use NT8's dd_remaining: it trails INTRADAY netliq (running high incl.
+        # unrealized), reading too tight vs the firm's EOD-realized DD. peak_balance ratchets on EOD cash.
         return min(self.start_bal + LOCK_BUFFER, self.peak_balance - self.dd)
 
     @property
     def buffer(self) -> float:
-        if self.dd_remaining is not None:
-            return max(0.0, self.dd_remaining)
+        """Room to the EOD-trailing floor = equity - floor. Floor frozen intraday, so today's realized
+        gains lift it 1:1 (matches the firm). Drives tier-sizing + auto-blow + blow detection."""
         return max(0.0, self.equity - self.floor)
 
     def to_dict(self) -> dict:
@@ -91,7 +109,11 @@ class EvalAccount:
                 "peak_balance": self.peak_balance, "cash": self.cash, "equity": self.equity,
                 "day_profit": self.day_profit, "last_seq": self.last_seq, "plan": self.plan,
                 "day_cap": self.day_cap, "stop_new_at": self.stop_new_at,
-                "target": self.target, "pass_buffer": self.pass_buffer}
+                "target": self.target, "pass_buffer": self.pass_buffer,
+                "consistency": self.consistency, "peak_day_profit": self.peak_day_profit,
+                "milk_at": self.milk_at, "manual_phase": self.manual_phase,
+                "risk_mode": self.risk_mode, "manual_blown": self.manual_blown,
+                "manual_passed": self.manual_passed}
 
     @classmethod
     def from_dict(cls, d: dict) -> "EvalAccount":
@@ -105,6 +127,13 @@ class EvalAccount:
         a.stop_new_at = d.get("stop_new_at", DAY_CAP_50)
         a.target = d.get("target", TARGET)
         a.pass_buffer = d.get("pass_buffer", 0.0)
+        a.consistency = d.get("consistency", 0.5)
+        a.peak_day_profit = d.get("peak_day_profit", 0.0)
+        a.milk_at = d.get("milk_at", 2800.0)
+        a.manual_phase = d.get("manual_phase", False)
+        a.risk_mode = d.get("risk_mode", "auto")
+        a.manual_blown = d.get("manual_blown", False)
+        a.manual_passed = d.get("manual_passed", False)
         return a
 
 
@@ -137,10 +166,43 @@ class EvalFarm:
         self.quiet = quiet
         self.passed_ids: list[str] = []       # -> hand these to the funded farm
         self.blown_ids: list[str] = []
+        self.removed_ids: list[str] = []      # user-removed (dead/passed accts NT8 still lists) -> never re-add
         self._tick = 0                        # monotonic counter for round-robin ordering
         self.log: list[str] = []
 
     # -- ingest /accounts snapshot --------------------------------------------------------------
+    RESET_TOL = 1.0   # $ tolerance for "balance is back at baseline" reset detection
+
+    def _looks_reset(self, a: "EvalAccount", m: dict) -> bool:
+        """A known account reappears at its baseline balance in a state that's impossible there.
+        Signals it was deleted + recreated under the same name (e.g. a OneDrive desync wiped NT8's
+        accounts and they were rebuilt fresh). DONE/MILKING require banked profit and BLOWN/PASSED
+        are terminal off-baseline outcomes, so none of them can legitimately sit at exactly start_bal
+        with nothing booked today. ACTIVE/FRESH at baseline are normal and left alone."""
+        at_baseline = abs(m.get("cash", a.cash) - a.start_bal) <= self.RESET_TOL
+        fresh_today = abs(m.get("realized_today", 0.0)) <= self.RESET_TOL
+        return at_baseline and (
+            a.state in (EState.BLOWN, EState.PASSED)
+            or (a.state in (EState.DONE, EState.MILKING) and fresh_today))
+
+    def _reset_account(self, a: "EvalAccount", m: dict) -> None:
+        """Wipe a reappeared account's carried-over state machine back to a clean FRESH baseline."""
+        prev = a.state.value
+        a.state = EState.FRESH
+        a.cash = a.equity = m.get("cash", a.start_bal)
+        a.peak_balance = a.start_bal
+        a.day_profit = 0.0
+        a.peak_day_profit = 0.0
+        a.last_seq = 0
+        if "dd" in m:
+            a.dd_remaining = m["dd"]
+        if a.id in self.blown_ids:
+            self.blown_ids.remove(a.id)
+        if a.id in self.passed_ids:
+            self.passed_ids.remove(a.id)
+        self._say(f"{a.id}: reappeared at baseline ${a.start_bal:,.0f} while {prev} -> RESET to FRESH "
+                  f"(account looks recreated)")
+
     def sync_accounts(self, snapshot: dict[str, dict]) -> list[str]:
         """Add newly-appeared eval accounts as FRESH; update equity/peak/floor; flag BLOWN (equity
         breached the floor) and PASSED (total >= +$3k). Returns new ids."""
@@ -148,7 +210,11 @@ class EvalFarm:
         for aid, m in snapshot.items():
             if self.eval_re and not self.eval_re.match(aid):
                 continue
+            if aid in self.removed_ids:
+                continue                              # user-removed: never re-add (NT8 still lists dead accts)
             a = self.accounts.get(aid)
+            if a is not None and (a.manual_blown or a.manual_passed):
+                continue                              # STICKY manual blow/pass: never revert or re-sync it
             if a is None:
                 # start_bal from the registry (plan baseline: $2k sims, $0 MFF) or first-seen cash.
                 a = EvalAccount(id=aid, start_bal=m.get("start_bal", m["cash"]), peak_balance=m["cash"],
@@ -156,6 +222,10 @@ class EvalFarm:
                 self.accounts[aid] = a
                 added.append(aid)
                 self._say(f"+ new eval {aid} -> FRESH (bal ${m['cash']:,.0f})")
+            elif self._looks_reset(a, m):
+                # Recreated-same-name guard (runs even for terminal BLOWN/PASSED so they recover).
+                self._reset_account(a, m)
+                added.append(aid)
             elif a.state in (EState.BLOWN, EState.PASSED):
                 continue
             else:
@@ -164,12 +234,30 @@ class EvalFarm:
                     a.dd_remaining = m["dd"]  # live remaining DD (NT8 TrailingMaxDrawdown)
             if "realized_today" in m:
                 a.day_profit = m["realized_today"]   # live today's P&L (resets at prop EOD -> restart/day-proof)
-                if a.state is EState.FRESH and abs(a.day_profit) > 1e-9:
-                    a.state = EState.ACTIVE          # it has already traded today
+                if a.day_profit > a.peak_day_profit:
+                    a.peak_day_profit = a.day_profit  # biggest day -> consistency target
+                # Discretionary day transitions are suppressed while manually locked (below).
+                if not a.manual_phase:
+                    if a.state is EState.FRESH and abs(a.day_profit) > 1e-9:
+                        a.state = EState.ACTIVE          # it has already traded today
+                    # New trading day for this account: it's DONE (capped) but its daily P&L has reset to ~0,
+                    # which means the firm rolled its day. Return it to the rotation NOW. Without this an
+                    # account that caps once stays DONE forever — sync has no other DONE->ACTIVE path, and the
+                    # timed end_of_day roll only fires once/day (and not at all on the old running build).
+                    # Robust to the firm's reset clock: recovery happens the poll after realized_today clears.
+                    if a.state is EState.DONE and abs(a.day_profit) <= 1e-9:
+                        a.state = EState.ACTIVE
             if a.equity <= a.floor + 1e-9:
-                self._blow(a)
-            elif a.total >= a.target:
-                self._pass(a)
+                self._blow(a)                         # BLOW is terminal even under a manual lock
+            elif a.total >= a.true_target:
+                self._pass(a)                         # PASS is terminal even under a manual lock
+            elif a.manual_phase:
+                pass                                  # locked: hold the forced state (no auto milk/DONE)
+            elif a.total >= a.milk_at and a.state in (EState.ACTIVE, EState.DONE, EState.MILKING):
+                if a.state is not EState.MILKING:
+                    self._say(f"{a.id}: total ${a.total:,.0f} -> MILKING to ${a.true_target:,.0f} "
+                              f"(biggest day ${a.peak_day_profit:,.0f})")
+                a.state = EState.MILKING              # close to passing -> 1-MNQ 4-strat to true_target
             elif a.state is EState.ACTIVE and a.day_profit >= a.stop_new_at - 1e-9:
                 a.state = EState.DONE
         return added
@@ -181,7 +269,7 @@ class EvalFarm:
         just over +$3k without overshooting (which would raise the consistency bar). <=0 => already
         at/over a line."""
         day_room = a.day_cap - a.day_profit
-        pass_room = (a.target + a.pass_buffer) - a.total
+        pass_room = (a.true_target + a.pass_buffer) - a.total   # consistency-adjusted pass line
         return min(day_room, pass_room)
 
     def _eligible(self) -> list:
@@ -207,6 +295,98 @@ class EvalFarm:
             self._say(f"route {strat} -> {[r.account_id for r in routes]}")
         return routes
 
+    def set_state(self, account_id: str, target: str) -> dict:
+        """Manually move an eval account MILKING <-> ACTIVE from the dashboard, or AUTO to release the
+        lock. MILKING/ACTIVE set the state AND lock it (manual_phase=True) so sync_accounts won't
+        auto-milk (total>=milk_at), auto-DONE, or auto-revert; AUTO clears the lock so the automatic rule
+        resumes. BLOWN/PASSED are terminal — can't be manually set. A manually-locked MILKER milks
+        unconditionally (the consistency ceiling only gates AUTO milkers)."""
+        a = self.accounts.get(account_id)
+        if a is None:
+            return {"ok": False, "error": f"unknown account {account_id}"}
+        if a.state in (EState.BLOWN, EState.PASSED):
+            return {"ok": False, "error": f"account {a.state.value.lower()}"}
+        t = str(target).upper()
+        if t == "AUTO":
+            a.manual_phase = False
+            self._say(f"{a.id}: manual lock released -> AUTO (state {a.state.value})")
+            return {"ok": True, "account": account_id, "state": a.state.value, "manual": False}
+        if t not in ("MILKING", "ACTIVE"):
+            return {"ok": False, "error": f"bad state {target}"}
+        a.state = EState(t)
+        a.manual_phase = True
+        self._say(f"{a.id}: manually set -> {t} (locked)")
+        return {"ok": True, "account": account_id, "state": a.state.value, "manual": True}
+
+    def set_risk_mode(self, account_id: str, mode: str) -> dict:
+        """Per-account risk tier: 'auto' ($750 while buffer < $2k, else day_cap), '750', or '1500'."""
+        a = self.accounts.get(account_id)
+        if a is None:
+            return {"ok": False, "error": f"unknown account {account_id}"}
+        if mode not in ("auto", "750", "1500"):
+            return {"ok": False, "error": f"bad risk mode {mode}"}
+        a.risk_mode = mode
+        self._say(f"{a.id}: risk mode -> {mode}")
+        return {"ok": True, "account": account_id, "risk_mode": mode}
+
+    def mark_blown(self, account_id: str) -> dict:
+        """Manually mark an account BLOWN (the firm force-closed it before our DD read caught up).
+        STICKY: sets manual_blown so sync_accounts skips it and can never revive it."""
+        a = self.accounts.get(account_id)
+        if a is None:
+            return {"ok": False, "error": f"unknown account {account_id}"}
+        a.manual_blown = True
+        if a.state is not EState.BLOWN:
+            a.state = EState.BLOWN
+            if a.id not in self.blown_ids:
+                self.blown_ids.append(a.id)
+        self._say(f"{a.id}: MANUALLY MARKED BLOWN (firm force-close)")
+        return {"ok": True, "account": account_id, "state": "BLOWN"}
+
+    def mark_passed(self, account_id: str) -> dict:
+        """Manually mark an account PASSED (the firm passed it but the farm missed the +$3k). STICKY:
+        sets manual_passed so sync won't revert it. Takes it out of the signal rotation."""
+        a = self.accounts.get(account_id)
+        if a is None:
+            return {"ok": False, "error": f"unknown account {account_id}"}
+        a.manual_passed = True
+        if a.state is not EState.PASSED:
+            a.state = EState.PASSED
+            if a.id not in self.passed_ids:
+                self.passed_ids.append(a.id)
+        self._say(f"{a.id}: MANUALLY MARKED PASSED")
+        return {"ok": True, "account": account_id, "state": "PASSED"}
+
+    def revive(self, account_id: str) -> dict:
+        """Undo a MANUAL blow/pass (or an auto-blow): clear the sticky flag and return the account to
+        ACTIVE. Safety valve for a false blow (bad NT8 read) or a mis-click. Won't touch a GENUINE
+        pass/blow (state terminal but no manual flag) — those self-correct on sync, so leave them."""
+        a = self.accounts.get(account_id)
+        if a is None:
+            return {"ok": False, "error": f"unknown account {account_id}"}
+        if not (a.state is EState.BLOWN or a.manual_blown or a.manual_passed):
+            return {"ok": False, "error": f"{account_id} is {a.state.value}, not manually blown/passed"}
+        a.manual_blown = False
+        a.manual_passed = False
+        if a.id in self.blown_ids:
+            self.blown_ids.remove(a.id)
+        if a.id in self.passed_ids:
+            self.passed_ids.remove(a.id)
+        a.state = EState.ACTIVE
+        self._say(f"{a.id}: REVIVED -> ACTIVE")
+        return {"ok": True, "account": account_id, "state": "ACTIVE"}
+
+    def remove(self, account_id: str) -> dict:
+        """Remove an account from the farm entirely (e.g. a passed eval whose NT8 account is dead but
+        still lingers in Account.All). Blocklisted in removed_ids so sync_accounts won't re-add it."""
+        if account_id not in self.accounts:
+            return {"ok": False, "error": f"{account_id} not an eval account"}
+        self.accounts.pop(account_id, None)
+        if account_id not in self.removed_ids:
+            self.removed_ids.append(account_id)
+        self._say(f"{account_id}: REMOVED from farm (blocklisted)")
+        return {"ok": True, "account": account_id, "removed": True}
+
     # -- a copied position closed --------------------------------------------------------------
     def on_position_closed(self, account_id: str, strat: str, realized_pnl: float) -> None:
         """Add the realized result to today's tally; flag DONE at the daily cap. BLOWN/PASSED are
@@ -215,6 +395,8 @@ class EvalFarm:
         if a is None or a.state is not EState.ACTIVE:
             return
         a.day_profit += realized_pnl
+        if a.day_profit > a.peak_day_profit:
+            a.peak_day_profit = a.day_profit
         if a.day_profit >= a.stop_new_at - 1e-9:
             a.state = EState.DONE
             self._say(f"{a.id}: daily cap (+${a.day_profit:,.0f}) -> DONE for the day")
@@ -226,8 +408,12 @@ class EvalFarm:
                 continue
             if a.cash > a.peak_balance:          # EOD trailing ratchet (realized closing balance)
                 a.peak_balance = a.cash
+            if a.day_profit > a.peak_day_profit:  # finalize the biggest-day tracker
+                a.peak_day_profit = a.day_profit
             if a.state in (EState.DONE, EState.ACTIVE):
                 a.state = EState.ACTIVE
+                a.day_profit = 0.0
+            elif a.state is EState.MILKING:       # stay MILKING; just reset the daily tally
                 a.day_profit = 0.0
 
     # -- transitions / helpers -----------------------------------------------------------------
@@ -259,7 +445,8 @@ class EvalFarm:
         with open(path, "w") as f:
             json.dump({"copies": self.copies, "day_cap": self.day_cap, "tick": self._tick,
                        "accounts": [a.to_dict() for a in self.accounts.values()],
-                       "passed_ids": self.passed_ids, "blown_ids": self.blown_ids}, f, indent=2)
+                       "passed_ids": self.passed_ids, "blown_ids": self.blown_ids,
+                       "removed_ids": self.removed_ids}, f, indent=2)
 
     def load_state(self, path: str) -> None:
         """Reload rotation bookkeeping across a restart/sleep. Live numbers (cash/equity/dd/day P&L)
@@ -271,6 +458,7 @@ class EvalFarm:
         self.accounts = {x["id"]: EvalAccount.from_dict(x) for x in d.get("accounts", [])}
         self.passed_ids = d.get("passed_ids", [])
         self.blown_ids = d.get("blown_ids", [])
+        self.removed_ids = d.get("removed_ids", [])
         self._tick = d.get("tick", 0)
 
     def state_table(self) -> str:

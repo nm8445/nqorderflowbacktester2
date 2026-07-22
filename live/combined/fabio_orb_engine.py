@@ -9,17 +9,22 @@ Implements the locked Fabio ORB v1 strategy per
   - Entry: 4 consecutive 5-min closes above ORB_High AND entry bar's
     buy_vol - sell_vol >= 300 AND ORB_Low < close (sanity).
   - Skip entries whose bar closes at exactly 09:30 ET (structurally bad).
-  - SL: static ORB_Low (never moved).
-  - TP: entry + 4.0 * (entry - ORB_Low) (rarely hit ~0.3% of trades).
+  - SL: GIVEBACK TRAILING YELLOW (2026-07-09) — starts at ORB_Low (floor), ratchets up toward
+    close - 1.5*ATR(14,5min), gives back after a bearish candle. Exit = bearish 5-min CLOSE <= yellow
+    (engine-driven, reason SL_YELLOW; NOT a resting stop). Deploy-cleared: PF 1.40, MaxDD -24% vs static,
+    combined 1-MNQ pass rate 67->73%. See project_fb_tail_risk_and_filters + scripts/fabio_orb/.
+  - TP: entry + 4.0 * (entry - ORB_Low) — kept as a resting-limit backstop (never hit under the trail).
   - EOD: exit at close of first bar whose close is >= 14:00 ET.
-  - If SL and TP both touched intrabar, SL fills first (conservative).
+  - Exit order per bar: TP (intrabar high) -> yellow (bearish close) -> EOD. Executors: NT8 rests the TP
+    only + CLOSE_TAG on exit (cancels the resting TP); MT5 disaster-SL only + close on exit.
 
 Backtest baseline (5.4 years 2020-12 → 2026-05, 1-contract NQ):
   709 trades, 53.7% WR, $157,965 net, PF 1.347, MaxDD -$20,240
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from datetime import date as _date, time
 from enum import Enum
 from typing import Callable, Optional
@@ -39,6 +44,19 @@ DELTA_THRESHOLD = 300   # buy_vol - sell_vol >= 300 contracts
 TP_RR_RATIO = 4.0
 EOD_TIME = time(14, 0)
 
+# --- Giveback trailing-yellow stop (replaces the static ORB_Low stop; deploy-cleared config) ---
+# The SL is a trailing "yellow" starting at ORB_Low (its hard FLOOR), ratcheting up toward
+# close - k*ATR, and giving back a body-scaled fraction after a bearish 5-min candle. Exit is a
+# BEARISH 5-min CLOSE <= yellow (engine-driven, like OD/B2 — NOT a resting stop). TP stays at 4R.
+YELLOW_K          = 1.5     # raw_yellow = close - k*ATR
+YELLOW_MODE       = "drift_floor"   # up-ratchet base (drift_floor / pure_ratchet)
+YELLOW_DRIFT      = 0.0     # pts/bar (drift_floor only)
+YELLOW_GIVEBACK   = 0.3     # fraction of (prev_yellow - raw_yellow) given back after a bearish candle
+YELLOW_SCALE_BODY = True    # scale the retreat by min(1, prev bearish body / ATR)
+YELLOW_MAX_GB     = 0.5     # cap on single-bar retreat, in ATR multiples
+YELLOW_MIN_GAP    = 0.3     # floor: yellow never below raw_yellow + this*ATR (keeps stop hittable)
+ATR_LEN           = 14      # 5-min ATR length (matches backtest; rolling, min 3 bars)
+
 
 class Direction(Enum):
     FLAT = 0
@@ -49,9 +67,11 @@ class Direction(Enum):
 class FabioPosition:
     entry_price: float
     entry_time: pd.Timestamp
-    sl_price: float            # ORB_Low — static
+    sl_price: float            # ORB_Low — the trailing-yellow FLOOR (also the gamble-sizing stop)
     tp_price: float            # entry + 4 * (entry - ORB_Low)
     qty: int = 1
+    yellow: float = 0.0        # current trailing stop (init = ORB_Low); managed per 5-min bar
+    prev_yellow: float = field(default=float("nan"))   # for ratchet/giveback
 
 
 @dataclass
@@ -86,6 +106,10 @@ class FabioORBEngine:
         # One trade per day max (matches backtest's run_day which breaks after
         # the first valid entry and returns after the exit).
         self._traded_today: bool = False
+        # trailing-yellow support: per-session 5-min ATR + prev bar (TR + bearish/giveback)
+        self._day_trs: list[float] = []
+        self._atr_prev_close: Optional[float] = None
+        self._prev_bar: Optional[Bar] = None
 
         self.n_bars_seen = 0
         self.n_entries = 0
@@ -119,6 +143,39 @@ class FabioORBEngine:
         self._orb_low = None
         self._post_orb_bars = []
         self._traded_today = False
+        self._day_trs = []
+        self._atr_prev_close = None
+        self._prev_bar = None
+
+    def _current_atr(self) -> Optional[float]:
+        """Rolling 5-min ATR over the session (matches backtest: rolling(ATR_LEN), min 3 TRs)."""
+        if len(self._day_trs) < 3:
+            return None
+        w = self._day_trs[-ATR_LEN:]
+        return sum(w) / len(w)
+
+    def _update_yellow(self, bar: Bar, atr: float) -> None:
+        """Ratchet the trailing yellow up / give it back on a post-bearish bar; floor at ORB_Low.
+        Bar-close logic (all inputs known at this bar's close) — no lookahead. Matches run_giveback."""
+        p = self.position
+        raw_yellow = bar.close - YELLOW_K * atr
+        prev = self._prev_bar
+        prev_bearish = prev is not None and prev.close < prev.open
+        gb_on = YELLOW_GIVEBACK > 0.0
+        if gb_on and prev_bearish and not math.isnan(p.prev_yellow):
+            gap = max(0.0, p.prev_yellow - raw_yellow)
+            frac = YELLOW_GIVEBACK
+            if YELLOW_SCALE_BODY:
+                frac *= min(1.0, (prev.open - prev.close) / atr)
+            cand = p.prev_yellow - min(gap * frac, YELLOW_MAX_GB * atr)
+        elif YELLOW_MODE == "pure_ratchet":
+            cand = max(p.prev_yellow, raw_yellow) if not math.isnan(p.prev_yellow) else raw_yellow
+        else:  # drift_floor
+            base = (p.prev_yellow + YELLOW_DRIFT) if not math.isnan(p.prev_yellow) else raw_yellow
+            cand = max(base, raw_yellow)
+        if gb_on:
+            cand = max(cand, raw_yellow + YELLOW_MIN_GAP * atr)
+        p.yellow = max(cand, p.sl_price)   # hard floor: never looser than ORB_Low
 
     def on_5min_bar(self, bar: Bar) -> None:
         """Process a closed 5-min bar."""
@@ -131,22 +188,40 @@ class FabioORBEngine:
         bar_date = close_ts.date()
         hhmm = close_ts.hour * 100 + close_ts.minute
 
-        # New session day → reset
+        # New session day: a still-open position means the prior session ended with NO 14:00 bar
+        # (half-day / early close / data gap). Force-close it at the prior session's last bar
+        # (matches the backtest's EOD_LAST) — FB must NEVER carry overnight.
         if bar_date != self._current_date:
+            if self.position is not None and self._prev_bar is not None:
+                self._do_exit(self._prev_bar.close, self._prev_bar.close_time, "EOD")
             self._reset_day(bar_date)
 
-        # === EXITS first ===
+        # Only the RTH session window (08:35–14:00 ET) drives ATR / ORB / entry / stop mgmt,
+        # matching the backtest's bar filter. Ignore out-of-session bars.
+        if not (ORB_START_HHMM < hhmm <= TRADE_END_HHMM):
+            return
+
+        # --- rolling 5-min ATR (in-session; TR needs a prior in-session close) ---
+        if self._atr_prev_close is not None:
+            tr = max(bar.high - bar.low,
+                     abs(bar.high - self._atr_prev_close), abs(bar.low - self._atr_prev_close))
+            self._day_trs.append(tr)
+        atr = self._current_atr()
+
+        # === EXITS: trailing yellow (bearish CLOSE <= yellow), TP (intrabar high), EOD (14:00) ===
+        #     — engine-driven exits (no resting stop); reasons match OD: SL_YELLOW / TP / EOD.
         if self.position is not None:
-            # SL — intrabar low touched ORB_Low (or below)
-            if bar.low <= self.position.sl_price:
-                # SL fills at sl_price (or worse — assume fills at sl_price)
-                self._do_exit(self.position.sl_price, close_ts, "SL")
-            elif bar.high >= self.position.tp_price:
-                # TP — intrabar high touched
-                self._do_exit(self.position.tp_price, close_ts, "TP")
+            if atr is not None and atr > 0:
+                self._update_yellow(bar, atr)
+            p = self.position
+            if bar.high >= p.tp_price:
+                self._do_exit(p.tp_price, close_ts, "TP")
+            elif bar.close <= p.yellow and bar.close < bar.open:
+                self._do_exit(bar.close, close_ts, "SL_YELLOW")
             elif close_ts.time() >= EOD_TIME:
-                # EOD — first bar that closes at or after 14:00 ET
                 self._do_exit(bar.close, close_ts, "EOD")
+            else:
+                p.prev_yellow = p.yellow    # roll only if still open
 
         # === ORB construction (08:35 → 09:00 closes) ===
         if ORB_START_HHMM < hhmm <= ORB_END_HHMM:
@@ -168,6 +243,10 @@ class FabioORBEngine:
                     and self._orb_high is not None
                     and not self._traded_today):
                 self._try_entry(bar, hhmm, close_ts)
+
+        # --- roll prev-bar state for the next in-session bar ---
+        self._atr_prev_close = bar.close
+        self._prev_bar = bar
 
     def _try_entry(self, bar: Bar, hhmm: int, close_ts: pd.Timestamp) -> None:
         # 1. Skip 09:30 bucket
@@ -202,9 +281,11 @@ class FabioORBEngine:
         self.position = FabioPosition(
             entry_price=entry_price,
             entry_time=close_ts,
-            sl_price=sl_price,
+            sl_price=sl_price,          # ORB_Low = the yellow's floor + the gamble-sizing stop
             tp_price=tp_price,
             qty=1,
+            yellow=sl_price,            # trailing stop starts at ORB_Low
+            prev_yellow=float("nan"),
         )
         # Lock out further entries for the rest of today's session
         self._traded_today = True

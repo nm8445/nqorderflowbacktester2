@@ -58,6 +58,10 @@ def _init(bars: pd.DataFrame) -> None:
 
 def sample_params(rng: random.Random) -> dict:
     """One random draw from the search space."""
+    # ~25% of draws leave giveback OFF (yellow_giveback=0) so pure-geometry configs
+    # stay in the leaderboard and the giveback-on configs have an apples-to-apples
+    # baseline. The rest sweep the giveback knobs jointly with the band geometry.
+    giveback = 0.0 if rng.random() < 0.25 else round(rng.uniform(0.1, 0.9), 2)
     return {
         "atr_len": rng.choice([7, 10, 12, 14, 16, 20, 25, 30]),
         "yellow_atr_mult": round(rng.uniform(0.75, 3.0), 2),
@@ -66,8 +70,15 @@ def sample_params(rng: random.Random) -> dict:
         "green_atr_mult": round(rng.uniform(0.5, 4.0), 2),
         "green_base": round(rng.uniform(20.0, 200.0), 1),
         "green_decay": round(rng.uniform(0.0, 3.0), 2),
-        "red_intercept": round(rng.uniform(-50.0, 50.0), 1),
-        "red_drift": round(rng.uniform(0.0, 1.5), 2),
+        # red is NOT swept: it only enters via green (green_val = entry + (red_intercept
+        # + green_base) + (red_drift - green_decay)*bars + green_atr*ATR), so red_intercept
+        # is co-linear with green_base and red_drift with green_decay. Pinned to live values
+        # in _to_strategy_params; green_base/green_decay carry the full target geometry.
+        # Bearish giveback knobs (inert when yellow_giveback == 0)
+        "yellow_giveback": giveback,
+        "scale_by_body": rng.random() < 0.5,
+        "max_giveback_atr": round(rng.uniform(0.25, 1.5), 2),
+        "giveback_min_gap_atr": round(rng.uniform(0.0, 0.6), 2),
     }
 
 
@@ -81,8 +92,12 @@ def _to_strategy_params(s: dict) -> StrategyParams:
         green_atr_mult=s["green_atr_mult"],
         green_base=s["green_base"],
         green_decay=s["green_decay"],
-        red_intercept=s["red_intercept"],
-        red_drift=s["red_drift"],
+        red_intercept=s.get("red_intercept", 0.0),   # pinned to live (co-linear with green_base)
+        red_drift=s.get("red_drift", 0.45),           # pinned to live (co-linear with green_decay)
+        yellow_giveback=s.get("yellow_giveback", 0.0),
+        scale_by_body=s.get("scale_by_body", True),
+        max_giveback_atr=s.get("max_giveback_atr", 0.75),
+        giveback_min_gap_atr=s.get("giveback_min_gap_atr", 0.0),
         use_be=False,
         use_martingale=False,
         base_qty=1,
@@ -133,6 +148,26 @@ def main(n_trials: int) -> None:
     bars = build_full_20min_series(PARQUET_PATH, PICKLE_FOLDER)
     print(f"  bars: {len(bars):,}  range: {bars.index.min()} -> {bars.index.max()}", flush=True)
 
+    # ---- live baseline (giveback OFF, current locked geometry) for comparison ----
+    # Same marti-OFF / BE-OFF geometry-only basis as the sweep, so PFs are comparable.
+    live = {
+        "atr_len": 14, "yellow_atr_mult": 1.30, "yellow_drift": 0.0,
+        "yellow_mode": "pure_ratchet", "green_atr_mult": 1.00, "green_base": 82.5,
+        "green_decay": 1.50, "red_intercept": 0.0, "red_drift": 0.45,
+        "yellow_giveback": 0.0, "scale_by_body": True, "max_giveback_atr": 0.75,
+        "giveback_min_gap_atr": 0.0,
+    }
+    global _BARS
+    _BARS = bars
+    live_m = _trial(live)
+    print(
+        f"\nLIVE baseline (giveback OFF): "
+        f"IS PF {live_m['IS_PF']:.3f} ({live_m['IS_trades']} td) | "
+        f"OOS PF {live_m['OOS_PF']:.3f} ({live_m['OOS_trades']} td) | "
+        f"OOS gross ${live_m['OOS_gross_$']:,.0f}",
+        flush=True,
+    )
+
     rng = random.Random(42)
     samples = [sample_params(rng) for _ in range(n_trials)]
     workers = max(1, (os.cpu_count() or 4) - 2)
@@ -170,8 +205,10 @@ def main(n_trials: int) -> None:
         "green_atr_mult",
         "green_base",
         "green_decay",
-        "red_intercept",
-        "red_drift",
+        "yellow_giveback",
+        "scale_by_body",
+        "max_giveback_atr",
+        "giveback_min_gap_atr",
         "IS_trades",
         "IS_win%",
         "IS_avg_$",
@@ -201,6 +238,33 @@ def main(n_trials: int) -> None:
         oos_pf = valid["OOS_PF"].clip(upper=5)
         rho = float(np.corrcoef(is_pf, oos_pf)[0, 1])
         print(f"\nIS->OOS PF correlation (clipped at 5): {rho:.3f}")
+
+    # ---------------- does giveback beat live? ----------------
+    live_oos = live_m["OOS_PF"]
+    live_is = live_m["IS_PF"]
+    gb_on = eligible[eligible["yellow_giveback"] > 0]
+    gb_off = eligible[eligible["yellow_giveback"] == 0]
+    print("\n=== Giveback vs live baseline ===")
+    print(f"live: IS PF {live_is:.3f} | OOS PF {live_oos:.3f}")
+    for label, sub in (("giveback ON", gb_on), ("giveback OFF", gb_off)):
+        if sub.empty:
+            print(f"  {label:14s}: no eligible trials")
+            continue
+        beat_oos = sub[sub["OOS_PF"] > live_oos]
+        beat_both = sub[(sub["OOS_PF"] > live_oos) & (sub["IS_PF"] > live_is)]
+        print(
+            f"  {label:14s}: {len(sub)} eligible | "
+            f"{len(beat_oos)} beat live OOS PF | {len(beat_both)} beat live on BOTH IS & OOS"
+        )
+
+    # Best robust giveback config (rank by the weaker of IS/OOS PF — hardest to overfit)
+    if not gb_on.empty:
+        gb = gb_on.copy()
+        gb["robust_PF"] = gb[["IS_PF", "OOS_PF"]].min(axis=1)
+        best = gb.sort_values("robust_PF", ascending=False).head(10).reset_index(drop=True)
+        print("\n=== Top 10 giveback-ON configs by min(IS_PF, OOS_PF) ===")
+        with pd.option_context("display.width", 260, "display.max_columns", None):
+            print(best[cols].round(2).to_string())
 
     print(f"\nFull table at: {OUT_DIR / 'optimize_trials.csv'}")
 

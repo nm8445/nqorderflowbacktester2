@@ -68,8 +68,8 @@ def convert(dbn_path: Path) -> Path | None:
 
 
 def main():
-    start = dt.date(2026, 4, 4)
-    end   = dt.date(2026, 5, 6)
+    start = dt.date(2026, 5, 24)
+    end   = dt.date(2026, 6, 12)
     if len(sys.argv) >= 3:
         start = dt.date.fromisoformat(sys.argv[1])
         end   = dt.date.fromisoformat(sys.argv[2])

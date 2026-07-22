@@ -349,7 +349,7 @@ def main():
     n_trades = len(df)
     total_pts = df["pts"].sum()
     subtitle = (f"Rough Vol v3 (no mart) + B2 OHI/OLO (FC-only mart) + Overnight Drift (locked) + Fabio ORB (locked)  ·  "
-                f"{n_trades} trades  ·  2020-12 → 2026-05  ·  "
+                f"{n_trades} trades  ·  2020-12 → 2026-06  ·  "
                 f"locked MNQ basis: {total_pts*2:+,.0f}$ at base=1   |   NQ basis: {total_pts*20:+,.0f}$ at base=1")
 
     all_dates = sorted(trades_data.keys())

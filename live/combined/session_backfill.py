@@ -13,7 +13,11 @@ Two-pass design (T+30 and T+60):
           [session_start, T] and merge into pickle. Live wins on overlap.
   - T+60: same fetch, safety pass for transient errors.
 
-Only fires if startup time is after 18:00 ET (a new CME session is in progress).
+Fires whenever today's session pickle has a REAL gap before startup — a cold daytime start (PC was
+off overnight), a restart after downtime, or an evening start right as the session opens. Skips when
+the pickle is already current (a clean restart after a continuously-running instance). No longer gated
+on wall-clock hour, which used to silently skip every 00:00-17:59 ET start and leave B2 without its
+overnight range.
 """
 from __future__ import annotations
 
@@ -42,6 +46,25 @@ def _current_session_date(now_et: pd.Timestamp) -> dt.date:
 def _session_start_et(session_date: dt.date) -> pd.Timestamp:
     """Session for date D starts at 18:00 ET (D-1)."""
     return pd.Timestamp(f"{session_date - dt.timedelta(days=1)} 18:00", tz=ET_TZ)
+
+
+def _pickle_covered_until(session_date: dt.date,
+                          cache_dir: Path = LIVE_WARMSTART_CACHE_DIR) -> Optional[pd.Timestamp]:
+    """Open_time (ET) of the LATEST 5-min bar already on disk for this session, or None if the pickle
+    is missing/empty. Lets us trigger the backfill off the real gap rather than the wall-clock hour."""
+    p = cache_dir / f"nq_5min_{session_date.isoformat()}.pkl"
+    if not p.exists():
+        return None
+    try:
+        with open(p, "rb") as f:
+            bars = pickle.load(f)
+    except Exception:
+        return None
+    if not bars:
+        return None
+    last = max(pd.Timestamp(b["open_time"]) for b in bars)
+    last = last.tz_localize("UTC") if last.tz is None else last.tz_convert("UTC")
+    return last.tz_convert(ET_TZ)
 
 
 def _fetch_historical_bars(start_et: pd.Timestamp, end_et: pd.Timestamp) -> list[dict]:
@@ -167,17 +190,26 @@ def schedule_session_backfill(startup_time_et: pd.Timestamp,
     Skips entirely if startup is before 18:00 ET (no new-session-in-progress).
     Returns the thread (None if not scheduled).
     """
-    if startup_time_et.hour < 18:
-        print(f"[backfill] startup {startup_time_et.strftime('%H:%M ET')} is "
-              f"before 18:00 — no backfill scheduled")
-        return None
-
     session_date = _current_session_date(startup_time_et)
     session_start = _session_start_et(session_date)
-    gap_min = int((startup_time_et - session_start).total_seconds() / 60)
-    print(f"[backfill] startup={startup_time_et.strftime('%Y-%m-%d %H:%M ET')}  "
-          f"session={session_date} (start {session_start.strftime('%H:%M')}-prev)  "
-          f"gap={gap_min} min")
+    if startup_time_et <= session_start:
+        print(f"[backfill] startup {startup_time_et.strftime('%Y-%m-%d %H:%M ET')} is at/before "
+              f"session open {session_start.strftime('%m-%d %H:%M')} — nothing to backfill")
+        return None
+
+    # Trigger off the ACTUAL gap in today's pickle, not the wall-clock hour. A prior continuously-running
+    # instance persists today's pickle as it goes, so a clean restart finds it current (skip). A cold
+    # daytime start (PC off overnight) finds it missing/short -> backfill the missed 18:00->startup hours.
+    covered = _pickle_covered_until(session_date)
+    gap_start = session_start if covered is None else covered + pd.Timedelta(minutes=5)
+    gap_min = int((startup_time_et - gap_start).total_seconds() / 60)
+    covered_str = covered.strftime('%m-%d %H:%M') if covered is not None else '(none on disk)'
+    if gap_min < 5:
+        print(f"[backfill] today's pickle already current through {covered_str} "
+              f"(gap {gap_min} min) — no backfill needed")
+        return None
+    print(f"[backfill] startup={startup_time_et.strftime('%Y-%m-%d %H:%M ET')}  session={session_date}  "
+          f"covered_through={covered_str}  gap={gap_min} min")
     print(f"[backfill] scheduled two passes: T+{delay1_min} min and T+{delay2_min} min")
 
     def _worker():

@@ -18,6 +18,7 @@ DUMP_URL = "http://localhost:8082/account_dump"
 ORDER_URL = "http://localhost:8082/order"
 CLOSE_URL = "http://localhost:8082/close"
 FLATTEN_URL = "http://localhost:8082/flatten"
+HEARTBEAT_URL = "http://localhost:8082/heartbeat"
 APP_FIRE_URL = "http://localhost:8090/api/fire_signal"   # routes via the dashboard's brain
 
 # --- which accounts to show ---------------------------------------------------------------------
@@ -73,6 +74,15 @@ def _post(url: str, payload: dict) -> dict:
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=5.0) as r:
         return json.loads(r.read().decode("utf-8"))
+
+
+def send_heartbeat(timeout: float = 1.0) -> None:
+    """POST /heartbeat so the addon's watchdog knows the farm brain is alive. Fire-and-forget with a
+    short timeout so a down addon can't stall the caller (raises on failure — caller swallows it)."""
+    data = json.dumps({"instance": "farm"}).encode("utf-8")
+    req = urllib.request.Request(HEARTBEAT_URL, data=data,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    urllib.request.urlopen(req, timeout=timeout).close()
 
 
 def place_order(account: str, direction: str, qty, sl=None, tp=None) -> None:

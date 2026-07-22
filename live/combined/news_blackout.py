@@ -254,14 +254,38 @@ class NewsBlackoutWatcher:
                 self._do_flatten(ev_dt, name)
                 self._handled.add(key)
 
+    # farm strats to force-flatten on a news blackout (covers whatever any farm account holds)
+    _FARM_STRATS = ("OD", "RV", "B2", "FB")
+
+    def _broadcast_farm_flatten(self, reason: str) -> None:
+        """Tell the farm (:8082) to FORCE-CLOSE every strat on every account. The farm never hears the
+        news flatten otherwise (this watcher bypasses the coordinator's EXIT callback), and it can hold
+        positions the coordinator no longer has (gamblers/eval-takers on their own bracket). Fire-and-
+        forget: the reason starts with 'news_blackout' so the farm treats it as a force-close (all
+        accounts), and each strat with nothing open is a harmless no-op."""
+        try:
+            from live.farm import farm_broadcast as _fb
+            if not getattr(_fb, "ENABLED", True):
+                return
+            for s in self._FARM_STRATS:
+                _fb._broadcast_async({"event": "EXIT", "strat": s, "direction": "LONG", "reason": reason})
+            print(f"  [news_blackout] farm force-close broadcast sent ({reason}, all strats)")
+        except Exception as e:
+            print(f"  [news_blackout] farm broadcast FAILED: {e}")
+
     def _do_flatten(self, ev_dt: pd.Timestamp, name: str) -> None:
         open_strats = list(self.coord._open_dir.keys())
         print(f"\n[news_blackout] === T-{FLATTEN_LEAD_SEC}s before {name} at "
               f"{ev_dt.strftime('%H:%M ET')} — flattening {len(open_strats)} "
               f"open position(s): {open_strats}")
 
+        # ALWAYS flatten the farm (even if the coordinator is flat): the farm can still hold a gambler /
+        # eval-taker that outlived the coordinator's position (ran to its own bracket after the coord exit).
+        self._broadcast_farm_flatten(f"news_blackout_{name}")
+
         if not open_strats:
-            print(f"[news_blackout] no open positions to flatten. Entries blocked until "
+            print(f"[news_blackout] no coordinator positions to flatten (farm flatten still sent). "
+                  f"Entries blocked until "
                   f"{(ev_dt + timedelta(seconds=ENTRY_TRAIL_SEC)).strftime('%H:%M:%S ET')}\n")
             return
 

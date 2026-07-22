@@ -3,7 +3,7 @@ from pathlib import Path
 
 # ============ Data sources ============
 DATABENTO_DATASET = "GLBX.MDP3"
-DATABENTO_SYMBOL = "NQ.c.0"
+DATABENTO_SYMBOL = "NQ.v.0"
 DATABENTO_SCHEMA = "mbp-1"
 DATABENTO_STYPE = "continuous"
 

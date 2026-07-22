@@ -1,0 +1,99 @@
+Building 20-min bars (live baseline)...
+LIVE 20-min (force=8, giveback off)        IS 1.101 (765) | OOS 1.350 (620) | FULL 1.233 net $  133,920 DD $  -21,600
+
+Building 60-min bars...
+  60-min bars: 34,043  range: 2020-12-01 00:00:00-05:00 -> 2026-06-19 13:00:00-04:00
+1hr naive (live geom, force=8, gb off)     IS 1.054 (765) | OOS 1.295 (625) | FULL 1.172 net $  169,770 DD $  -30,990
+
+=== Stage B: force-close-hour sweep (1hr, live geometry) ===
+  giveback OFF (pure_ratchet up-only yellow):
+   force= 8:00                                IS 1.054 (765) | OOS 1.295 (625) | FULL 1.172 net $  169,770 DD $  -30,990
+   force= 9:00                                IS 1.084 (765) | OOS 1.194 (626) | FULL 1.140 net $  154,620 DD $  -46,710
+   force=10:00                                IS 1.060 (765) | OOS 1.219 (627) | FULL 1.140 net $  159,925 DD $  -44,815
+   force=11:00                                IS 1.102 (767) | OOS 1.232 (626) | FULL 1.167 net $  192,280 DD $  -45,905
+   force=12:00                                IS 1.097 (765) | OOS 1.225 (629) | FULL 1.161 net $  185,965 DD $  -48,855
+   force=13:00                                IS 1.101 (764) | OOS 1.234 (626) | FULL 1.167 net $  193,410 DD $  -48,365
+   force=14:00                                IS 1.115 (755) | OOS 1.204 (621) | FULL 1.160 net $  185,250 DD $  -51,185
+   force=15:00                                IS 1.119 (754) | OOS 1.208 (622) | FULL 1.164 net $  189,880 DD $  -48,855
+   force=16:00                                IS 1.116 (754) | OOS 1.198 (625) | FULL 1.157 net $  181,750 DD $  -48,855
+  giveback ON (FB breathing yellow, gb=0.5):
+   force= 8:00                                IS 1.102 (766) | OOS 1.229 (625) | FULL 1.167 net $  166,315 DD $  -38,465
+   force= 9:00                                IS 1.108 (766) | OOS 1.092 (626) | FULL 1.100 net $  114,840 DD $  -61,995
+   force=10:00                                IS 1.070 (767) | OOS 1.133 (627) | FULL 1.102 net $  123,505 DD $  -59,485
+   force=11:00                                IS 1.121 (768) | OOS 1.108 (626) | FULL 1.114 net $  140,380 DD $  -65,750
+   force=12:00                                IS 1.120 (766) | OOS 1.111 (629) | FULL 1.115 net $  141,805 DD $  -68,395
+   force=13:00                                IS 1.116 (766) | OOS 1.096 (626) | FULL 1.106 net $  131,620 DD $  -70,280
+   force=14:00                                IS 1.130 (754) | OOS 1.083 (620) | FULL 1.106 net $  131,185 DD $  -72,425
+   force=15:00                                IS 1.124 (754) | OOS 1.083 (621) | FULL 1.103 net $  128,620 DD $  -70,105
+   force=16:00                                IS 1.125 (754) | OOS 1.082 (624) | FULL 1.103 net $  127,745 DD $  -70,030
+
+=== Stage C: random search, 6000 trials on 22 workers ===
+  250/6000  (12.7/s, eta 453s)
+  500/6000  (17.4/s, eta 317s)
+  750/6000  (19.8/s, eta 265s)
+  1000/6000  (21.2/s, eta 236s)
+  1250/6000  (22.1/s, eta 215s)
+  1500/6000  (22.8/s, eta 197s)
+  1750/6000  (23.3/s, eta 183s)
+  2000/6000  (23.6/s, eta 169s)
+  2250/6000  (23.9/s, eta 157s)
+  2500/6000  (24.1/s, eta 145s)
+  2750/6000  (24.3/s, eta 134s)
+  3000/6000  (24.5/s, eta 122s)
+  3250/6000  (24.6/s, eta 112s)
+  3500/6000  (24.7/s, eta 101s)
+  3750/6000  (24.8/s, eta 91s)
+  4000/6000  (24.9/s, eta 80s)
+  4250/6000  (25.0/s, eta 70s)
+  4500/6000  (25.0/s, eta 60s)
+  4750/6000  (25.1/s, eta 50s)
+  5000/6000  (25.1/s, eta 40s)
+  5250/6000  (25.0/s, eta 30s)
+  5500/6000  (25.0/s, eta 20s)
+  5750/6000  (25.1/s, eta 10s)
+  6000/6000  (25.1/s, eta 0s)
+Done in 239s
+
+Live 20-min bar-to-beat: IS 1.101 | OOS 1.350 | robust 1.101
+Eligible 1hr trials (IS_trades >= 200): 6000/6000
+1hr configs beating live on BOTH IS & OOS: 398
+1hr configs beating live robust min(IS,OOS): 1486
+
+=== Top 20 1hr configs by robust min(IS,OOS) PF ===
+ force_hour  atr_len  yellow_atr_mult  yellow_mode  yellow_drift  green_atr_mult  green_base  green_decay  yellow_giveback  scale_by_body  max_giveback_atr  giveback_min_gap_atr  IS_PF  OOS_PF  FULL_PF  robust_PF  FULL_gross_$  FULL_maxDD_$  FULL_trades
+         14        7             0.99 pure_ratchet          0.00            3.40       102.4         0.17             0.33          False              0.79                  0.36  1.293   1.361    1.327      1.293      311245.0      -39230.0         1385
+         14       30             0.97 pure_ratchet          0.00            2.94       140.7         2.41             0.70          False              0.26                  0.43  1.293   1.343    1.318      1.293      288730.0      -35465.0         1383
+         16       25             0.88  drift_floor          1.31            2.07       171.6         1.48             0.00          False              1.48                  0.47  1.292   1.400    1.346      1.292      304245.0      -43125.0         1384
+         12        7             0.91 pure_ratchet          0.00            3.76       185.8         2.39             0.36          False              0.95                  0.31  1.287   1.348    1.318      1.287      293565.0      -37070.0         1392
+         16        7             1.14 pure_ratchet          0.00            3.36       149.8         0.80             0.25          False              1.47                  0.53  1.286   1.368    1.327      1.286      288310.0      -41460.0         1392
+         16        7             0.88 pure_ratchet          0.00            2.92       139.9         1.38             0.00          False              0.29                  0.38  1.280   1.348    1.315      1.280      264380.0      -38535.0         1390
+         14       14             0.84  drift_floor          0.07            2.59       171.4         1.77             0.48           True              0.52                  0.26  1.278   1.387    1.333      1.278      265850.0      -34825.0         1386
+         15       14             0.83 pure_ratchet          0.00            3.09       195.5         1.70             0.35          False              1.45                  0.26  1.277   1.278    1.277      1.277      271765.0      -51060.0         1380
+         15       16             0.85 pure_ratchet          0.00            1.99       195.4         0.42             0.00           True              1.14                  0.14  1.275   1.383    1.329      1.275      294525.0      -40225.0         1381
+         13       25             1.02  drift_floor          1.07            3.20       101.3         1.39             0.23          False              0.36                  0.48  1.271   1.388    1.330      1.271      288770.0      -30165.0         1388
+         15       12             0.91 pure_ratchet          0.00            3.55        76.4         0.73             0.54           True              0.33                  0.33  1.270   1.371    1.322      1.270      258960.0      -40805.0         1386
+         16       25             0.90 pure_ratchet          0.00            2.01       156.8         2.07             0.31          False              1.45                  0.45  1.269   1.409    1.340      1.269      287305.0      -24950.0         1386
+         13        7             0.88 pure_ratchet          0.00            3.40       162.0         2.24             0.00          False              1.17                  0.39  1.265   1.406    1.337      1.265      283830.0      -37185.0         1389
+         13       20             0.80  drift_floor          1.54            3.63       119.8         1.58             0.31          False              0.37                  0.24  1.263   1.379    1.321      1.263      291555.0      -39065.0         1389
+         15       20             0.91  drift_floor          2.12            2.34       192.3         1.56             0.00          False              0.45                  0.33  1.260   1.421    1.341      1.260      288995.0      -37740.0         1386
+         15        7             1.01 pure_ratchet          0.00            2.11       185.2         0.88             0.00           True              0.92                  0.18  1.260   1.381    1.321      1.260      296460.0      -41405.0         1382
+         14       25             1.05  drift_floor          1.67            2.36       171.3         0.72             0.19           True              0.32                  0.45  1.254   1.380    1.317      1.254      242770.0      -34865.0         1387
+         16        7             1.07  drift_floor          2.95            0.50       149.1         0.75             0.00           True              1.34                  0.51  1.252   1.393    1.323      1.252      258355.0      -31650.0         1393
+         16       10             0.95  drift_floor          2.22            1.77       175.4         2.26             0.00          False              1.11                  0.29  1.252   1.454    1.353      1.252      289245.0      -31435.0         1389
+         11       25             0.85  drift_floor          0.88            3.03       121.7         0.25             0.00           True              0.54                  0.38  1.251   1.365    1.309      1.251      273865.0      -40985.0         1391
+
+=== Eligible-trial PF by force_hour (median robust_PF, count) ===
+            median    max  count
+force_hour                      
+8            1.025  1.189    661
+9            1.045  1.218    686
+10           1.017  1.225    685
+11           1.077  1.251    642
+12           1.067  1.287    688
+13           1.054  1.271    648
+14           1.086  1.293    677
+15           1.087  1.277    679
+16           1.101  1.292    634
+
+Full table -> C:\trading\nqorderflowbacktester\scripts\overnight drift strategy\results\sweep_1hr_trials.csv
+Force-close sweep -> C:\trading\nqorderflowbacktester\scripts\overnight drift strategy\results\sweep_1hr_forceclose.csv

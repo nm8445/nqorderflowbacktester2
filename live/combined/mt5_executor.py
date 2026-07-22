@@ -473,7 +473,7 @@ class MT5Executor:
                 return False
             self.n_exits_sent += 1
             print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] OK reason={reason} "
-                  f"@ {res.price:.2f} rtt={rtt_ms:.0f}ms")
+                  f"@ {res.price:.2f} at {pd.Timestamp.now(tz=ET_TZ):%H:%M:%S} ET rtt={rtt_ms:.0f}ms")
             return True
         except Exception as e:
             print(f"  [mt5][{self.firm_label}][{strat}-CLOSE] EXCEPTION: {e} (attempt {attempt})")

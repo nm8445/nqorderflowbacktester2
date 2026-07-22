@@ -1,0 +1,45 @@
+=== MENTHORQ-STYLE GAMMA LEVELS  2026-06-17 (Wed) ===
+  Window: 1D Expected Move = spot * ATM_IV * sqrt(1/252)
+  Score:  |Net GEX| + spot * |Net DEX|  (excludes CR and PS strikes)
+  HVL:    cumulative GEX zero-crossing within +/-5% of spot
+  QQQ ratio: 41.300  |  NDX-NQ basis: +100.0
+
+--- QQQ ---
+  spot:             722.51    NQ-equiv: 29839.66    (NQ = QQQ * 41.300)
+  ATM IV:           0.3220
+  1D Expected Move: +/- 14.65    window: [707.86, 737.16]
+  HVL:              --
+  HVL 0DTE:         --
+  Call Resistance:  K=725.0  NQ=29942  (calls-only gex +5.06e+10)
+  Put Support:      K=720.0  NQ=29736  (puts-only gex -1.20e+11)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):
+    GEX_1   K=   735.0  NQ=   30355  gex=+2.25e+10  net_dex=-8.37e+08  call_dex=+2.39e+08  put_dex=-1.08e+09
+    GEX_2   K=   722.0  NQ=   29819  gex=-3.54e+10  net_dex=-9.66e+07  call_dex=+7.66e+07  put_dex=-1.73e+08
+    GEX_3   K=   730.0  NQ=   30149  gex=-2.37e+09  net_dex=-1.43e+09  call_dex=+4.70e+08  put_dex=-1.90e+09
+    GEX_4   K=   731.0  NQ=   30190  gex=-1.22e+10  net_dex=-8.79e+08  call_dex=+2.82e+07  put_dex=-9.07e+08
+    GEX_5   K=   734.0  NQ=   30314  gex=+8.54e+09  net_dex=-9.18e+08  call_dex=+7.31e+07  put_dex=-9.91e+08
+    GEX_6   K=   715.0  NQ=   29529  gex=-2.38e+10  net_dex=+1.93e+08  call_dex=+7.80e+08  put_dex=-5.87e+08
+    GEX_7   K=   724.0  NQ=   29901  gex=-1.24e+10  net_dex=-5.23e+08  call_dex=+7.96e+07  put_dex=-6.02e+08
+    GEX_8   K=   710.0  NQ=   29323  gex=-8.41e+09  net_dex=+6.39e+08  call_dex=+9.20e+08  put_dex=-2.81e+08
+    GEX_9   K=   721.0  NQ=   29777  gex=-1.57e+10  net_dex=-4.58e+07  call_dex=+6.51e+07  put_dex=-1.11e+08
+    GEX_10  K=   727.0  NQ=   30025  gex=-7.28e+09  net_dex=-3.15e+08  call_dex=+6.91e+07  put_dex=-3.85e+08
+
+--- NDX (NDX + NDXP combined) ---
+  spot:             29763.11    NQ-equiv: 29863.11    (NQ = NDX + 100.0)
+  ATM IV:           0.3104
+  1D Expected Move: +/- 581.90    window: [29181.21, 30345.01]
+  HVL:              --
+  HVL 0DTE:         --
+  Call Resistance:  K=30000.0  NQ=30100  (calls-only gex +6.07e+10)
+  Put Support:      K=29750.0  NQ=29850  (puts-only gex -1.65e+10)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):
+    GEX_1   K= 29450.0  NQ=   29550  gex=+8.42e+09  net_dex=+6.35e+08  call_dex=+7.38e+08  put_dex=-1.03e+08
+    GEX_2   K= 29650.0  NQ=   29750  gex=+1.60e+10  net_dex=+2.89e+08  call_dex=+3.05e+08  put_dex=-1.55e+07
+    GEX_3   K= 29550.0  NQ=   29650  gex=+1.13e+10  net_dex=+3.14e+08  call_dex=+3.48e+08  put_dex=-3.43e+07
+    GEX_4   K= 29400.0  NQ=   29500  gex=-3.67e+09  net_dex=+4.30e+08  call_dex=+5.53e+08  put_dex=-1.24e+08
+    GEX_5   K= 29900.0  NQ=   30000  gex=+1.32e+10  net_dex=+3.32e+07  call_dex=+1.80e+08  put_dex=-1.47e+08
+    GEX_6   K= 30200.0  NQ=   30300  gex=+5.31e+09  net_dex=-2.77e+08  call_dex=+6.84e+07  put_dex=-3.46e+08
+    GEX_7   K= 29375.0  NQ=   29475  gex=-5.94e+09  net_dex=+2.50e+08  call_dex=+3.10e+08  put_dex=-5.98e+07
+    GEX_8   K= 29500.0  NQ=   29600  gex=+3.74e+09  net_dex=+3.24e+08  call_dex=+4.49e+08  put_dex=-1.26e+08
+    GEX_9   K= 29700.0  NQ=   29800  gex=+5.37e+09  net_dex=+7.79e+07  call_dex=+2.01e+08  put_dex=-1.23e+08
+    GEX_10  K= 29250.0  NQ=   29350  gex=-5.73e+09  net_dex=-5.05e+07  call_dex=+5.39e+06  put_dex=-5.59e+07
