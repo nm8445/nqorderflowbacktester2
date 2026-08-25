@@ -35,3 +35,13 @@ venv/
 
 # farm runtime state (rebuilt from NT8 + persisted bookkeeping)
 live/farm/state/
+
+# Regenerable research caches (rebuilt by the strategy's own build step).
+# Kept on disk, out of git — these were ~192 MB of tracked binaries.
+scripts/**/.cache/
+scripts/rv_1min_pass_opt/cache/
+scripts/rough vol orderflow/results/phase1_all_configs.csv
+scripts/propfirm_milking/results/_fb_5min_delta_bars.parquet
+
+# Replayed tick data for live/combined (re-fetchable from Databento)
+live/combined/state/replay/*.parquet
