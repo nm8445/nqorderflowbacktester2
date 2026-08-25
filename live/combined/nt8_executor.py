@@ -298,11 +298,23 @@ class NT8Executor:
                     entry_ts=sig.timestamp, entry_price=sig.price,
                 )
             elif sig.event == "EXIT":
-                if sig.reason == "force_close":
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "RV":
-                            self.send_close_tag(tag, sig.reason)
-                            break
+                # STALE-TAG FIX (2026-08-17, incident 2026-08-13): RV's bracket exits (SL/TP)
+                # used to leave the tag in self._open forever (only force_close cleaned up).
+                # Stale tags accumulated, and a later force_close closed the OLDEST stale tag
+                # (then `break`ed) instead of the live one — the live position never got its
+                # CLOSE_TAG and the stale tag hit the addon's untracked no-op path, leaving
+                # its resting bracket orders orphaned. Now: purge ALL RV tags on any exit,
+                # and on force_close send CLOSE_TAG for ALL of them (no break) — the addon
+                # broker-checks each, market-closing only the tracked live one and doing a
+                # cancel-only orphan sweep for untracked/stale ones.
+                for tag, op in list(self._open.items()):
+                    if op.strat == "RV":
+                        if sig.reason == "force_close":
+                            self.send_close_tag(tag, sig.reason)   # pops the tag itself
+                        else:
+                            # NT8's own bracket filled (SL/TP) — no order needed, just purge
+                            # so this tag can't shadow a future force_close.
+                            self._open.pop(tag, None)
         # ---- B2 ----
         def on_b2(sig):
             d = ("LONG" if sig.direction.name == "LONG"
@@ -323,10 +335,11 @@ class NT8Executor:
                 # checks the broker's actual position first — if the resting limit already filled
                 # (broker flat), it aborts to a no-op and cancels orphan orders; if still open, it
                 # cancels the resting limit and market-closes. No double-close / reversal risk.
+                # (2026-08-17: no `break` — close ALL matching tags so a stale one can't
+                # shadow the live one; untracked tags are a cancel-only sweep addon-side.)
                 for tag, op in list(self._open.items()):
                     if op.strat == "B2" and op.direction == d:
                         self.send_close_tag(tag, sig.reason)
-                        break
         # ---- OD ----
         def on_od(sig):
             d = "LONG" if sig.direction.name == "LONG" else "FLAT"
@@ -336,10 +349,10 @@ class NT8Executor:
                     entry_ts=sig.timestamp, entry_price=sig.price,
                 )
             elif sig.event == "EXIT":
+                # (2026-08-17: no `break` — see on_rv comment)
                 for tag, op in list(self._open.items()):
                     if op.strat == "OD":
                         self.send_close_tag(tag, sig.reason)
-                        break
         # ---- Fabio ----
         def on_fb(sig):
             d = "LONG"
@@ -356,10 +369,10 @@ class NT8Executor:
                 # ALWAYS CLOSE_TAG on any exit (SL_YELLOW / TP / EOD). The addon's CloseTaggedPosition
                 # checks the broker first: no-op if the resting TP already filled (and cancels orphans),
                 # else it CANCELS the resting TP limit and market-closes — so no orphan TP is left behind.
+                # (2026-08-17: no `break` — see on_rv comment)
                 for tag, op in list(self._open.items()):
                     if op.strat == "FB":
                         self.send_close_tag(tag, sig.reason)
-                        break
         print(f"[nt8] callbacks created for RV+B2+OD+Fabio (coordinator will route)")
         return {"RV": on_rv, "B2": on_b2, "OD": on_od, "FB": on_fb}
 
@@ -392,13 +405,14 @@ class NT8Executor:
                     tag_by_position[_key("RV", d, sig.timestamp)] = tag
             elif sig.event == "EXIT":
                 # RV uses bracket — NT8 auto-fills the stop/target.
-                # For force-close: send CLOSE_TAG to flatten.
-                if sig.reason == "force_close":
-                    # Find the matching open tag (most recent RV one)
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "RV":
+                # (2026-08-17: purge on bracket exits + close ALL tags on force_close, no
+                # `break` — see get_callbacks on_rv for the stale-tag incident rationale.)
+                for tag, op in list(self._open.items()):
+                    if op.strat == "RV":
+                        if sig.reason == "force_close":
                             self.send_close_tag(tag, sig.reason)
-                            break
+                        else:
+                            self._open.pop(tag, None)
         rv.subscribe(on_rv)
 
         # ---- B2: TP-only resting limit + Python-managed yellow stop ----
@@ -423,11 +437,10 @@ class NT8Executor:
                 # Always CLOSE_TAG (incl. TP_FIXED). The addon verifies the broker position
                 # before closing, so this is a no-op if NT8's resting limit already filled and a
                 # real close if it didn't (the orphan-position bug of 2026-06-30). See the live
-                # get_callbacks() on_b2 for the full rationale.
+                # get_callbacks() on_b2 for the full rationale. (2026-08-17: no `break`.)
                 for tag, op in list(self._open.items()):
                     if op.strat == "B2" and op.direction == d:
                         self.send_close_tag(tag, sig.reason)
-                        break
         b2.subscribe(on_b2)
 
         # ---- OD (Python-managed exits) ----
@@ -441,10 +454,9 @@ class NT8Executor:
                 if tag:
                     tag_by_position[_key("OD", d, sig.timestamp)] = tag
             elif sig.event == "EXIT":
-                for tag, op in list(self._open.items()):
+                for tag, op in list(self._open.items()):   # 2026-08-17: no `break`
                     if op.strat == "OD":
                         self.send_close_tag(tag, sig.reason)
-                        break
         od.subscribe(on_od)
 
         # ---- Fabio ----
@@ -461,11 +473,14 @@ class NT8Executor:
                     tag_by_position[_key("FB", d, sig.timestamp)] = tag
             elif sig.event == "EXIT":
                 # EOD exit → flatten the FB tag. SL/TP handled by NT8 bracket.
-                if sig.reason == "EOD":
-                    for tag, op in list(self._open.items()):
-                        if op.strat == "FB":
+                # (2026-08-17: purge on bracket exits + close ALL tags on EOD, no `break` —
+                # same stale-tag class as on_rv.)
+                for tag, op in list(self._open.items()):
+                    if op.strat == "FB":
+                        if sig.reason == "EOD":
                             self.send_close_tag(tag, sig.reason)
-                            break
+                        else:
+                            self._open.pop(tag, None)
         fb.subscribe(on_fb)
         print(f"[nt8] wired to RV+B2+OD+Fabio engines")
 

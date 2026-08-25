@@ -190,10 +190,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                 string resolvedName = Resolve(instrumentName);
                 resolvedInstrument = Instrument.GetInstrument(resolvedName);
 
+                // Fill-driven bracket reconciliation (added 2026-08-17, incident 2026-08-13):
+                // when a stop/target fills, cancel its partner leg + untrack the tag.
+                // -= before += keeps this idempotent across Start/Stop cycles.
+                if (trackedAccount != null)
+                {
+                    trackedAccount.OrderUpdate -= OnAccountOrderUpdate;
+                    trackedAccount.OrderUpdate += OnAccountOrderUpdate;
+                }
+
                 listenerThread = new Thread(ListenLoop) { IsBackground = true, Name = "NQMS-Listener" };
                 listenerThread.Start();
 
-                watchdogTimer = new Timer(_ => CheckHeartbeats(), null, 10000, 10000);
+                // Watchdog tick also runs the orphan-order sweep (2026-08-17) — the last-line
+                // safety net that cancels any working bracket order with no live position.
+                watchdogTimer = new Timer(_ => { CheckHeartbeats(); SweepOrphanOrders(); }, null, 10000, 10000);
 
                 // Resync state from NT8's live order book — recovers from
                 // addon recompiles/restarts mid-trade. Scans Working+Filled
@@ -231,6 +242,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             listenerThread = null;
             watchdogTimer?.Dispose();
             watchdogTimer = null;
+            if (trackedAccount != null)
+                try { trackedAccount.OrderUpdate -= OnAccountOrderUpdate; } catch { }
             uiDispatcher?.BeginInvoke(new Action(() =>
             {
                 statusText.Text = "Status: Stopped";
@@ -287,8 +300,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (var pos in byTag.Values)
                 {
                     bool entryFilled = pos.EntryOrder != null && pos.EntryOrder.OrderState == OrderState.Filled;
-                    bool stopWorking = pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working;
-                    bool tgtWorking  = pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working;
+                    // Adopt on any NON-TERMINAL resting order, not just Working (2026-08-17):
+                    // live adapters can hold resting orders in Accepted/TriggerPending. If we
+                    // failed to adopt here, the orphan sweep would later cancel the brackets of
+                    // a position that is actually still open.
+                    bool stopWorking = pos.StopOrder != null && !IsTerminalOrderState(pos.StopOrder.OrderState);
+                    bool tgtWorking  = pos.TargetOrder != null && !IsTerminalOrderState(pos.TargetOrder.OrderState);
                     if (entryFilled && (stopWorking || tgtWorking))
                     {
                         openTaggedPositions[pos.Tag] = pos;
@@ -416,6 +433,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                     Tag = tag, Strat = strat, Direction = direction,
                     Quantity = qty, EntryTime = DateTime.Now, InstanceId = instanceId,
                 };
+                // Track BEFORE submitting (moved 2026-08-17): the orphan sweep cancels working
+                // bracket orders whose tag isn't tracked — registering the tag first means the
+                // sweep can never race a just-submitted bracket and kill a legitimate new order.
+                openTaggedPositions[tag] = pos;
 
                 pos.EntryOrder = trackedAccount.CreateOrder(
                     orderInstr, oaEntry, OrderType.Market,
@@ -428,7 +449,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // If only stop → standalone stop (rare).
                 if (hasStop || hasTgt)
                 {
-                    string ocoId = (hasStop && hasTgt) ? (tag + "_OCO") : "";
+                    // ALWAYS assign an OCO id (changed 2026-08-17, incident 2026-08-13):
+                    // single-leg brackets (B2/FB target-only) used to get ocoId "" — no OCO
+                    // partner to kill the limit, so every cancel path had to work perfectly.
+                    // One of those orphaned limits FILLED after the position closed, opening a
+                    // naked short. A single-member OCO group is valid and harmless in NT8, and
+                    // the id is unique per tag so there's no OCO-id-reuse rejection.
+                    string ocoId = tag + "_OCO";
                     if (hasTgt)
                     {
                         double tgtPx = double.Parse(p["target_price"]);
@@ -451,7 +478,6 @@ namespace NinjaTrader.NinjaScript.AddOns
                     }
                 }
 
-                openTaggedPositions[tag] = pos;
                 UpdatePositionsLabel();
             }
             else if (action == "CLOSE_TAG")
@@ -463,7 +489,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 else
                 {
-                    Log($"CLOSE_TAG {tag}: position not found (already closed?)");
+                    // ORPHAN FIX (added 2026-08-17, incident 2026-08-13): this used to be a
+                    // silent no-op — if the tag had already been untracked, its still-working
+                    // {tag}_S / {tag}_T orders kept resting and one later FILLED, opening a
+                    // naked short. Now sweep the account order book and cancel anything left
+                    // for this tag. Deliberately cancel-only: we do NOT market-close here —
+                    // the broker position is NET across strats, so closing an untracked tag
+                    // could flatten another strat's contracts.
+                    Log($"CLOSE_TAG {tag}: position not tracked — sweeping order book for orphan orders");
+                    if (tag != null)
+                        CancelOrphanOrdersForTag(tag, "close_tag_untracked");
                 }
             }
         }
@@ -498,21 +533,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                     Log($"  CLOSE ABORTED {pos.Tag}: broker side={brokerSide} qty={brokerQty} "
                         + $"but tracked={pos.Direction} qty={pos.Quantity}. "
                         + "Likely closed externally (manual flatten). Untracking only — no order sent.");
-                    // Cancel any orphan OCO orders so they don't fire later
-                    if (pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working)
-                        trackedAccount.Cancel(new[] { pos.StopOrder });
-                    if (pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working)
-                        trackedAccount.Cancel(new[] { pos.TargetOrder });
+                    // Cancel any orphan OCO orders so they don't fire later (2026-08-17: routed
+                    // through CancelBracketOrders — any non-terminal state, verified + retried)
+                    CancelBracketOrders(pos, "close_aborted_" + reason);
                     openTaggedPositions.TryRemove(pos.Tag, out _);
                     UpdatePositionsLabel();
                     return;
                 }
 
-                // Cancel any pending OCO orders
-                if (pos.StopOrder != null && pos.StopOrder.OrderState == OrderState.Working)
-                    trackedAccount.Cancel(new[] { pos.StopOrder });
-                if (pos.TargetOrder != null && pos.TargetOrder.OrderState == OrderState.Working)
-                    trackedAccount.Cancel(new[] { pos.TargetOrder });
+                // Cancel any pending bracket orders BEFORE the market exit.
+                // ORPHAN FIX (2026-08-17, incident 2026-08-13): this used to be a fire-and-forget
+                // Cancel() gated on OrderState == Working. Live adapters can hold resting orders in
+                // Accepted/TriggerPending/etc., which the guard silently SKIPPED — after the market
+                // close both bracket orders kept working and one later filled (naked short).
+                // CancelBracketOrders cancels anything non-terminal, retries, and logs states.
+                CancelBracketOrders(pos, "close_" + reason);
 
                 // Cap close quantity to actual broker position (in case of partial external close)
                 int closeQty = Math.Min(pos.Quantity, brokerQty);
@@ -533,6 +568,187 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             openTaggedPositions.TryRemove(pos.Tag, out _);
             UpdatePositionsLabel();
+        }
+
+        // ============== Bracket-cancel invariant (added 2026-08-17) ==============
+        // INCIDENT 2026-08-13: an RV force_close market-closed the position but BOTH resting
+        // bracket orders survived it; later the same day B2's orphaned green-TP limit
+        // (~30272.25) FILLED after its position was already closed — opening a naked SHORT
+        // with no stop and no target. Root causes: (1) cancels only fired when
+        // OrderState == Working, silently skipping Accepted/TriggerPending/etc.;
+        // (2) cancels were fire-and-forget with no verify/retry/log; (3) CLOSE_TAG on an
+        // untracked tag was a silent no-op; (4) nothing ever reconciled working orders
+        // against tracked positions.
+        //
+        // INVARIANT enforced here: NO RESTING BRACKET ORDER MAY OUTLIVE THE POSITION IT
+        // PROTECTS. Three layers:
+        //   1. Every close path routes through CancelBracketOrders() — cancels any
+        //      non-terminal order, verifies asynchronously, retries, logs before/after state.
+        //   2. OnAccountOrderUpdate — the moment a {tag}_S/_T fills, the partner leg is
+        //      cancelled and the tag untracked (covers the single-leg no-OCO history and
+        //      makes a later redundant CLOSE_TAG a safe cancel-only sweep instead of a
+        //      market order against another strat's net position).
+        //   3. SweepOrphanOrders — every 10s (watchdog timer) cancels any working _S/_T
+        //      whose tag is no longer tracked, and reconciles tracked tags against the
+        //      broker's net position (auto-fixes the unambiguous flat case, warns loudly
+        //      on any net mismatch).
+
+        // Terminal = the order can never fill again. Anything else (Initialized, Submitted,
+        // Accepted, TriggerPending, Working, ChangePending, CancelPending, PartFilled...)
+        // can still fill or has quantity left, so it must be treated as cancellable.
+        private static bool IsTerminalOrderState(OrderState s)
+        {
+            return s == OrderState.Filled || s == OrderState.Cancelled || s == OrderState.Rejected;
+        }
+
+        // Cancel one order with full state logging + async verify/retry. NT8's Cancel() is
+        // asynchronous and can be rejected or silently dropped by the adapter — the old
+        // fire-and-forget call is exactly what left the 2026-08-13 orphans alive.
+        private void CancelOrderChecked(Order o, string why)
+        {
+            if (o == null || trackedAccount == null) return;
+            OrderState before = o.OrderState;
+            if (IsTerminalOrderState(before)) return;   // already dead — nothing to do
+            Log($"  cancel {o.Name} state={before} ({why})");
+            try { trackedAccount.Cancel(new[] { o }); }
+            catch (Exception ex) { Log($"  cancel ERROR {o.Name}: {ex.Message}"); }
+            // Verify in the background; retry twice; log the outcome either way so the next
+            // incident is diagnosable from the addon log alone.
+            Task.Run(() =>
+            {
+                try
+                {
+                    for (int i = 0; i < 10; i++)                     // ~5s total
+                    {
+                        Thread.Sleep(500);
+                        OrderState now = o.OrderState;
+                        if (IsTerminalOrderState(now))
+                        {
+                            Log($"  cancel CONFIRMED {o.Name}: {before} -> {now} ({why})");
+                            return;
+                        }
+                        if (i == 3 || i == 7)                        // retry at ~2s and ~4s
+                        {
+                            Log($"  cancel RETRY {o.Name}: still {now} ({why})");
+                            try { trackedAccount.Cancel(new[] { o }); }
+                            catch (Exception ex) { Log($"  cancel retry ERROR {o.Name}: {ex.Message}"); }
+                        }
+                    }
+                    Log($"  *** CANCEL FAILED {o.Name}: still {o.OrderState} after retries ({why}) — ORPHAN RISK, sweep keeps trying every 10s");
+                }
+                catch { /* order object torn down */ }
+            });
+        }
+
+        // Cancel BOTH bracket legs of a tracked position, then sweep the account order book
+        // for the tag in case the tracked Order references are stale (recompile/resync edge).
+        private void CancelBracketOrders(TaggedPosition pos, string why)
+        {
+            if (pos == null) return;
+            CancelOrderChecked(pos.StopOrder, why);
+            CancelOrderChecked(pos.TargetOrder, why);
+            CancelOrphanOrdersForTag(pos.Tag, why, pos.StopOrder, pos.TargetOrder);
+        }
+
+        // Cancel every non-terminal {tag}_S / {tag}_T on the account — works even when the
+        // tag was never tracked (the CLOSE_TAG-on-untracked-tag path of the incident).
+        // skip1/skip2 avoid double-logging orders already handled by CancelBracketOrders.
+        private void CancelOrphanOrdersForTag(string tag, string why, Order skip1 = null, Order skip2 = null)
+        {
+            if (trackedAccount == null || string.IsNullOrEmpty(tag)) return;
+            try
+            {
+                foreach (var o in trackedAccount.Orders.ToList())
+                {
+                    if (o == null || string.IsNullOrEmpty(o.Name)) continue;
+                    if (o == skip1 || o == skip2) continue;
+                    if (o.Name != tag + "_S" && o.Name != tag + "_T") continue;
+                    CancelOrderChecked(o, why + "_tag_sweep");
+                }
+            }
+            catch (Exception ex) { Log($"CancelOrphanOrdersForTag {tag} error: {ex.Message}"); }
+        }
+
+        // Fill-driven partner cancel + untrack: when a bracket leg fills, the position is
+        // closed — kill the other leg immediately and untrack the tag so any later
+        // CLOSE_TAG becomes a safe cancel-only sweep (never a market order that would hit
+        // another strat's contracts on the NET broker position).
+        private void OnAccountOrderUpdate(object sender, OrderEventArgs e)
+        {
+            try
+            {
+                if (e == null || e.Order == null || string.IsNullOrEmpty(e.Order.Name)) return;
+                if (e.OrderState != OrderState.Filled) return;
+                string n = e.Order.Name;
+                bool isStop = n.EndsWith("_S"), isTgt = n.EndsWith("_T");
+                if (!isStop && !isTgt) return;
+                string tag = n.Substring(0, n.Length - 2);
+                if (!openTaggedPositions.TryGetValue(tag, out var pos)) return;
+                Log($"FILL {n} @ {e.AverageFillPrice:F2} — position closed by {(isStop ? "stop" : "target")}; cancelling partner leg + untracking");
+                CancelOrderChecked(isStop ? pos.TargetOrder : pos.StopOrder, "partner_leg_filled");
+                openTaggedPositions.TryRemove(tag, out _);
+                UpdatePositionsLabel();
+            }
+            catch (Exception ex) { Log($"OnAccountOrderUpdate error: {ex.Message}"); }
+        }
+
+        // Safety-net reconciliation, run every 10s off the watchdog timer:
+        //   a) any working _S/_T whose tag is NOT tracked is an orphan — cancel it
+        //      unconditionally (ResyncFromNT8 re-adopts live positions at startup, so an
+        //      untracked bracket order can only belong to a closed/abandoned position);
+        //   b) for tracked tags, compare the broker's net position on the instrument to the
+        //      net of all tracked tags: auto-fix only the unambiguous case (broker flat +
+        //      exactly one tracked tag), otherwise log the mismatch loudly for the operator.
+        private DateTime lastNetMismatchWarn = DateTime.MinValue;   // rate-limit the sweep warning
+        private void SweepOrphanOrders()
+        {
+            if (trackedAccount == null) return;
+            try
+            {
+                foreach (var o in trackedAccount.Orders.ToList())
+                {
+                    if (o == null || string.IsNullOrEmpty(o.Name)) continue;
+                    string n = o.Name;
+                    if (!n.EndsWith("_S") && !n.EndsWith("_T")) continue;
+                    if (IsTerminalOrderState(o.OrderState)) continue;
+                    string tag = n.Substring(0, n.Length - 2);
+                    var parts = tag.Split('_');
+                    if (parts.Length < 4) continue;                       // not one of ours
+                    string strat = parts[0];
+                    if (strat != "RV" && strat != "B2" && strat != "OD" && strat != "FB") continue;
+
+                    if (!openTaggedPositions.TryGetValue(tag, out var pos))
+                    {
+                        Log($"SWEEP: orphan {n} state={o.OrderState} (tag not tracked) — cancelling");
+                        CancelOrderChecked(o, "sweep_untracked");
+                        continue;
+                    }
+                    // Tracked: reconcile against the broker NET position on this instrument.
+                    if ((DateTime.Now - pos.EntryTime).TotalSeconds < 30) continue;   // entry may still be filling
+                    var bp = trackedAccount.Positions.FirstOrDefault(p => p.Instrument == o.Instrument);
+                    int brokerNet = bp == null || bp.MarketPosition == MarketPosition.Flat ? 0
+                                  : (bp.MarketPosition == MarketPosition.Long ? bp.Quantity : -bp.Quantity);
+                    var sameInstr = openTaggedPositions.Values
+                        .Where(tp => (tp.EntryOrder?.Instrument ?? resolvedInstrument) == o.Instrument).ToList();
+                    int expectedNet = sameInstr.Sum(tp => tp.Direction == "LONG" ? tp.Quantity : -tp.Quantity);
+                    if (brokerNet == 0 && sameInstr.Count == 1)
+                    {
+                        // Unambiguous: the only tracked position on this instrument is gone at the
+                        // broker — its brackets are orphans. Cancel + untrack.
+                        Log($"SWEEP: {n} state={o.OrderState} — broker FLAT on {o.Instrument?.FullName}, sole tracked tag {tag} is stale; cancelling + untracking");
+                        CancelBracketOrders(pos, "sweep_broker_flat");
+                        openTaggedPositions.TryRemove(tag, out _);
+                        UpdatePositionsLabel();
+                    }
+                    else if (brokerNet != expectedNet && (DateTime.Now - lastNetMismatchWarn).TotalSeconds > 60)
+                    {
+                        // Ambiguous (multiple tags net together) — never guess which tag is stale.
+                        lastNetMismatchWarn = DateTime.Now;
+                        Log($"SWEEP WARNING: broker net {brokerNet} != tracked net {expectedNet} on {o.Instrument?.FullName} ({sameInstr.Count} tracked tag(s)) — check positions manually");
+                    }
+                }
+            }
+            catch (Exception ex) { Log($"SweepOrphanOrders error: {ex.Message}"); }
         }
 
         // ============== HEARTBEAT handler ==============
