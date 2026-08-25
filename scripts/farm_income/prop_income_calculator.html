@@ -51,8 +51,11 @@
         <button onclick="preset('B3')">50k B · 3pay</button>
       </div>
       <div class="presets">
-        <button onclick="preset('k150_5k')">150k · $5k cap</button>
-        <button onclick="preset('k150_3k')">150k · $3k cap</button>
+        <button onclick="preset('k150_5k')">150k · $5k cap · 6 MNQ</button>
+        <button onclick="preset('k150_3k')">150k · $3k cap · 3 MNQ</button>
+      </div>
+      <div class="presets">
+        <button onclick="preset('tp150')">50k · TP150/SL100 1-shot @ 1 NQ</button>
       </div>
       <label><span>Signals / day (your algo's avg)</span><input type="number" id="sig" value="3.04" step="0.1"></label>
       <label><span>Accounts (total bought / cycle)</span><input type="number" id="acct" value="30" step="1"></label>
@@ -60,7 +63,8 @@
       <label><span>Eval pass rate (%, MAE-aware)</span><input type="number" id="pass" value="34" step="1"></label>
       <label><span>Funded payout rate (% of funded that collect ≥1 payout)</span><input type="number" id="payrate" value="33" step="1"></label>
       <label><span>$ per funded account (net, after split — avg incl. $0 blows)</span><input type="number" id="perf" value="974" step="25"></label>
-      <label><span>Gamble trades / cycle (eval+funded, signal-limited)</span><input type="number" id="gtr" value="11" step="1"></label>
+      <label><span>Eval trades / cycle (avg incl. failed evals, signal-limited)</span><input type="number" id="etr" value="3.4" step="0.1"></label>
+      <label><span>Funded gamble trades / cycle (signal-limited)</span><input type="number" id="gtr" value="11" step="1"></label>
       <label><span>Milk days / cycle (daily, not signal-limited)</span><input type="number" id="milk" value="15" step="1"></label>
       <label><span>Eval fee ($/account)</span><input type="number" id="fee" value="100" step="5"></label>
       <label><span>Trading days / year</span><input type="number" id="tdy" value="251" step="1"></label>
@@ -105,8 +109,12 @@
       <details open><summary>Formulas (audit the math)</summary>
         <div class="panel formula" style="margin-top:8px">
           <code>copies = accounts / lanes</code> &nbsp;(one signal copied to all copies in a lane)<br>
-          <code>cycle_days = gamble_trades × (lanes / signals_day) + milk_days</code> &nbsp;← the gamble is
-            signal-limited; more lanes ⇒ each waits longer ⇒ longer cycle<br>
+          <code>cycle_days = (eval_trades + funded_gamble_trades) × (lanes / signals_day) + milk_days</code><br>
+          &nbsp;&nbsp;← both gamble legs are signal-limited; more lanes ⇒ each waits longer ⇒ longer cycle.
+          <b>eval_trades is the average INCLUDING failed evals</b> — a failed eval still burns calendar
+          days before you learn it failed, and ~74% of 150k evals fail. Omitting this leg (as this
+          calculator did before 2026-07-25) understated time-to-payout and overstated annual income
+          by ~20-25%.<br>
           <code>cycles_per_year = trading_days_year / cycle_days</code><br>
           <code>funded/cycle = accounts × eval_pass</code> &nbsp;(pass the eval gamble)<br>
           <code>paying/cycle = funded/cycle × payout_rate</code> &nbsp;(survive the FUNDED gamble+milk to ≥1 payout)<br>
@@ -143,7 +151,7 @@
 
 <script>
 const $=id=>document.getElementById(id);
-const ids=["sig","acct","lanes","pass","payrate","perf","gtr","milk","fee","tdy"];
+const ids=["sig","acct","lanes","pass","payrate","perf","etr","gtr","milk","fee","tdy"];
 const fmt=n=>isFinite(n)?"$"+Math.round(n).toLocaleString():"—";
 const PRESETS={ // A re-gambles (more gamble trades, less milk), B milks-down (fewer gamble, more milk)
   // 50k ($2k DD, +$3k, $100 fee): pass 34% — MAE-AWARE (real firm floating rule). The OLD 43% was
@@ -159,22 +167,73 @@ const PRESETS={ // A re-gambles (more gamble trades, less milk), B milks-down (f
   // Fully MAE-aware (gamble + milk intraday lows), a_vs_b.py. Payout cap varies by firm -> 2pay & 3pay.
   // Per FUNDED: B (milk-down) > A (re-gamble) — re-gambling throws survivors back into the 34% blow-gauntlet.
   // Per YEAR: A > B — milking to 5 more winning days is slow, so A cycles faster (throughput narrows it).
-  A:{perf:974,  gtr:11, milk:15, pass:34, payrate:33, fee:100},   // cap 2, re-gamble
-  B:{perf:1019, gtr:8,  milk:20, pass:34, payrate:33, fee:100},   // cap 2, milk-down
-  A3:{perf:1231, gtr:13, milk:17, pass:34, payrate:33, fee:100},  // cap 3, re-gamble  (~$120k/yr)
-  B3:{perf:1328, gtr:8,  milk:28, pass:34, payrate:33, fee:100},  // cap 3, milk-down
-  // 150k ($4.5k DD, +$9k, $300 fee): eval risk $4,000. pass ~30% MAE-aware (est: realized-only 37%
-  // haircut for the same intrabar floating blows; not separately measured). FUNDED = lock-and-milk:
-  // gamble the 5-strat to the +$4,500 lock (51% reach), milk 4-way @ 6 MNQ to +$9k, withdraw min(50%,
-  // cap), x2. $4k cap perf ~2,881 (milk 25d). Bigger milk MNQ -> a bit less $/funded, fewer milk days.
-  k150_5k:{perf:3475, gtr:4, milk:26, pass:30, payrate:51, fee:300},
-  k150_3k:{perf:2211, gtr:4, milk:25, pass:30, payrate:51, fee:300},
+  A:{perf:974,  etr:3.4, gtr:11, milk:15, pass:34, payrate:33, fee:100},   // cap 2, re-gamble
+  B:{perf:1019, etr:3.4, gtr:8,  milk:20, pass:34, payrate:33, fee:100},   // cap 2, milk-down
+  A3:{perf:1231, etr:3.4, gtr:13, milk:17, pass:34, payrate:33, fee:100},  // cap 3, re-gamble  (~$120k/yr)
+  B3:{perf:1328, etr:3.4, gtr:8,  milk:28, pass:34, payrate:33, fee:100},  // cap 3, milk-down
+  // ---- 150k, REBUILT 2026-07-25 to the real rules. All figures MEASURED, fully MAE-aware
+  // (acct_150k_spec_run.py). Supersedes the old lock-and-milk presets below.
+  // RULES: $150k, $4,500 trailing-then-lock DD, +$9,000 eval target, ~$250 fee.
+  //   EVAL     risk $4,500/trade, 1:1 fixed ATR -> pass 26.4% MEASURED (2.2 trades).
+  //            Eval risk is NOT a lever: pass is FLAT 24-28% from $2,000-$6,000 risk, because
+  //            MAE scales with position size so the DD/risk gain cancels. $4,500 is chosen for
+  //            SPEED (fewest trades), not for pass rate. The old 30% was an unmeasured estimate;
+  //            a realized-only sweep says 37% and is an ARTIFACT - do not use it.
+  //   FUNDED   build to +$7,200 (2x risk) at flat $3,600 -> 32.3% reach (3.3 trades).
+  //            Do NOT resize down after a losing first trade: it lifts reach to 40% but costs
+  //            65 trades; the slot is worth more recycled into a fresh eval (dd-aware costs 4x
+  //            $/slot/yr). Build target +$4,500..+$7,200 all similar; do NOT build to 2x cap.
+  //   HARVEST  no milk-to-target. Take 5 winning days (>=$250) at a fixed MNQ, withdraw
+  //            min(50% x profit, cap) x 0.90, DD resets to remaining profit, repeat until blown.
+  //            Payouts capped at 2-5 by the firm (then the account moves to live); modelled at 5.
+  //            Milk size flips with the cap: $5k cap wants 6 MNQ, $3k cap wants 3 MNQ.
+  // UNIT ECONOMICS: income = evals_bought_per_year x ~$770 net per eval ($5k cap).
+  // The binding constraint is EVAL CAPITAL, not signals/accounts/config.
+  // CAVEAT: firm-days resampled i.i.d. -> clustered losing streaks under-weighted; flatters the
+  // 4th-5th withdrawal tail. Block-resample by week before sizing big.
+  k150_5k:{perf:3859, etr:2.2, gtr:3.3, milk:11, pass:26, payrate:29, fee:250},
+  k150_3k:{perf:3285, etr:2.2, gtr:3.2, milk:17, pass:26, payrate:32, fee:250},
+  // ---- 50k, TP150/SL100 SINGLE-SHOT — FUNDED PHASE ONLY (2026-07-30) --------------------------
+  // *** THE EVAL CANNOT USE THIS. *** The 50k eval carries a 50% CONSISTENCY rule: biggest day
+  // <= 50% of total profit. Passing with ONE $3,000 trade puts 100% of profit on one day = instant
+  // violation. That rule is exactly why eval risk is $1,500 (= 50% of the $3,000 target). So the
+  // eval keeps the farm 1:1 config (pass 34%, etr 3.4) and ONLY the funded buffer-build is
+  // one-shot => gtr=1. FUNDED has no consistency rule, which is what makes it legal there.
+  //
+  // Discards every strategy exit rule; the 4-way is used ONLY as entry timing. Hard static
+  // bracket: TP +150pts (=$3,000 at 1 NQ) vs SL -100pts (=$2,000 = the ENTIRE $2k room). One
+  // trade builds the funded buffer: win => +$3,000, lose => funded account dead.
+  //
+  // MEASURED on 3,497 real 4-way signals vs 1-min bars (first_passage_50_100.py / hard_bracket_farm_mc.py):
+  //   P(TP first) = 44.2%  vs a 40.0% driftless-walk null  => +4.2pts of genuine ordering edge.
+  //   IS 2020-12..2023 44.3% (+4.3, z=3.96) | OOS 2024..2026 44.1% (+4.1, z=3.19)  -> STABLE.
+  //   Every full year positive (2021 +5.8 .. 2025 +2.3). Ambiguous same-minute cases 0.03%.
+  //   Hold: median 0.51d, mean 0.60d, 16% run past a day.
+  //   PER LEG (OOS): RV +6.7 | FB +6.3 | B2 +4.7 | OD only +1.7 (z=0.85) -- OD is 43% of signals
+  //   and barely clears the null here, because OD's edge is EXIT management, not directional drift.
+  //
+  // NOT MEASURED (assumptions baked into perf/milk): zero slippage & spread (a 2-pt worse entry
+  // makes it an effective 152/98 and materially cuts the edge -- UNTESTED); entry priced at the
+  // 1-min close asof fill, not real fills; 2 payouts; $2k cap; $150 winning-day; 90% split.
+  // perf $1,179 draws the gamble as a Bernoulli from 0.442 rather than re-simulating it.
+  //
+  // CYCLE CAVEATS: this model charges only the signal WAIT per trade, not the ~0.60d HOLD
+  // (adds ~1.2d, -6% annual). And `milk` assumes the account sees the FULL 4-way daily P&L while
+  // lanes give it only 1/lanes of the signals -- pre-existing flaw in ALL presets, and milk is
+  // ~75% of this cycle, so it matters most here.
+  // pass/etr are the UNCHANGED 1:1 eval (consistency-capped). Only gtr=1 and perf reflect the
+  // funded one-shot. Annual 30acct/5lanes: $40,111 -> $93,854 (2.34x), NOT the 4.2x an
+  // eval+funded one-shot would imply -- that version is illegal under the 50% rule.
+  tp150:{perf:1179, etr:3.4, gtr:1.0, milk:14, pass:34, payrate:46, fee:100},
 };
 function preset(k){const p=PRESETS[k];for(const f in p)$(f).value=p[f];recompute();}
 function cvOf(L){return 0.34 + 0.95/Math.sqrt(L);}  // REFIT to corrected fully-MAE MC: 2L→1.01, 5L→0.76, 10L→0.64 (old 0.26+0.51/√L understated risk)
 function calc(o){
   const copies=o.acct/o.lanes;
-  const cycle=o.gtr*(o.lanes/o.sig)+o.milk;
+  // cycle = EVAL trades + FUNDED gamble trades (both signal-limited) + milk days (calendar).
+  // The eval leg was previously omitted, which understated time-to-payout: a FAILED eval still
+  // burns calendar days before you learn it failed, and every cycle pays that cost.
+  const cycle=(o.etr+o.gtr)*(o.lanes/o.sig)+o.milk;
   const cycyr=o.tdy/cycle;
   const fund=o.acct*o.pass;
   const pay=fund*o.payrate;                 // funded accounts that collect >=1 payout
@@ -185,8 +244,8 @@ function calc(o){
 }
 function recompute(){
   const o={sig:+$("sig").value,acct:+$("acct").value,lanes:+$("lanes").value,pass:+$("pass").value/100,
-           payrate:+$("payrate").value/100,perf:+$("perf").value,gtr:+$("gtr").value,milk:+$("milk").value,
-           fee:+$("fee").value,tdy:+$("tdy").value};
+           payrate:+$("payrate").value/100,perf:+$("perf").value,etr:+$("etr").value,
+           gtr:+$("gtr").value,milk:+$("milk").value,fee:+$("fee").value,tdy:+$("tdy").value};
   const r=calc(o);
   $("o_annual").textContent=fmt(r.annual); $("o_annual").style.color=r.annual>=0?"#7ee787":"#ff9b95";
   $("o_cyc").textContent=r.cycle.toFixed(0)+" d";

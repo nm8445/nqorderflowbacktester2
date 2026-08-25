@@ -26,6 +26,9 @@ ONE_MIN = Path("D:/trading_pythonbacktest_data/markettick_1min_bars.parquet")
 OUT = ROOT / "scripts" / "montecarlo" / "results" / "combined_4way_with_mae_1min.csv"
 ET = "America/New_York"
 NQ_PT = 20.0
+# Exit-bar period per leg, inferred from the exit_ts grid in combined_4way_trades.csv.
+# Needed because bars are left-labeled and close-based exits fill at label + BAR.
+BAR_MIN = {"OD": 20, "RV": 20, "B2": 20, "FB": 5}
 
 
 def main():
@@ -60,13 +63,28 @@ def main():
     for _, r in t.iterrows():
         strat = r["strat"]; longish = (r["direction"] == "LONG")
         fill = r["entry_ts"] + (pd.Timedelta(minutes=20) if strat == "OD" else pd.Timedelta(0))
-        f_ns = np.int64(fill.value); x_ns = np.int64(r["exit_ts"].value)
+        # ---- EXIT-BAR FIX (2026-07-25) --------------------------------------------------
+        # Strategy bars are label="left"/closed="left" and close-based exits fill at the bar's
+        # CLOSE, i.e. at exit_label + BAR[strat]. Ending the MAE window at exit_label therefore
+        # DROPPED the entire exit bar -- exactly where the adverse close that triggers the stop
+        # lives. Symptom: realized loss > recorded MAE on 13.8% of rows (arithmetically impossible).
+        # Fix: extend through the exit bar, but truncate at the first 1-min bar that actually
+        # TOUCHES exit_price -- exact for close-based exits AND for intrabar TP fills.
+        x_end = r["exit_ts"] + pd.Timedelta(minutes=BAR_MIN[strat])
+        f_ns = np.int64(fill.value); x_ns = np.int64(x_end.value)
         ep_pos = int(np.searchsorted(idx, f_ns, side="right")) - 1   # 1-min close asof fill
         s = int(np.searchsorted(idx, f_ns, side="right"))            # bars after fill
-        e = int(np.searchsorted(idx, x_ns, side="right"))            # through exit
+        e = int(np.searchsorted(idx, x_ns, side="right"))            # through the exit BAR
         if ep_pos < 0 or e <= s:
             skipped += 1; continue
         entry_price = cl[ep_pos]
+        # truncate at the actual fill instant inside the exit bar
+        xp = r.get("exit_price", np.nan)
+        if not (isinstance(xp, float) and np.isnan(xp)):
+            seg = (hi[s:e] >= xp - 1e-9) if longish else (lo[s:e] <= xp + 1e-9)
+            hit = np.nonzero(seg)[0]
+            if hit.size:
+                e = s + int(hit[0]) + 1
         if longish:
             mae_pts = entry_price - lo[s:e].min()
         else:
