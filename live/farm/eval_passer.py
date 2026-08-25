@@ -278,12 +278,35 @@ class EvalFarm:
         return [a for a in self.accounts.values()
                 if a.state in (EState.FRESH, EState.ACTIVE) and a.buffer > 0]
 
-    # -- route one signal: round-robin to the next `copies` accounts ----------------------------
-    def route_signal(self, strat: str, today: date) -> list[Route]:
-        """The signal goes to the next `copies` least-recently-traded accounts. copies=1 = fully
-        de-correlated; copies=2 = the same round-robin, two accounts at a time. No account takes two
-        of the same rotation; an account waits its turn before trading again."""
-        takers = sorted(self._eligible(), key=lambda x: (x.last_seq, x.id))[: self.copies]
+    def eligible_ids(self) -> list[str]:
+        """In-play account ids. FarmState needs these to pick the lane, because ONE lane is chosen
+        per signal across the eval farm AND the funded farm together."""
+        return [a.id for a in self._eligible()]
+
+    def _takers(self, lanes=None, active_lane: int | None = None) -> list:
+        """Who takes this signal.
+
+        LANES OFF (default): the next `copies` least-recently-traded accounts — copies=1 is fully
+        de-correlated, copies=2 routes two at a time. Unchanged legacy behaviour.
+
+        LANES ON: EVERY eligible account in the active lane takes it (that is the point of a lane —
+        one bet held across several firms), PLUS the legacy round-robin over accounts that have NOT
+        been assigned a lane, so lanes can be switched on for only part of the farm.
+        """
+        elig = self._eligible()
+        if lanes is None or not lanes.enabled:
+            return sorted(elig, key=lambda x: (x.last_seq, x.id))[: self.copies]
+        takers = [a for a in elig if active_lane is not None and lanes.lane_of(a.id) == active_lane]
+        loose = [a for a in elig if lanes.lane_of(a.id) is None]
+        return takers + sorted(loose, key=lambda x: (x.last_seq, x.id))[: self.copies]
+
+    # -- route one signal: the active lane (or the legacy round-robin) --------------------------
+    def route_signal(self, strat: str, today: date, lanes=None,
+                     active_lane: int | None = None) -> list[Route]:
+        """Route one signal. `lanes`/`active_lane` come from FarmState, which picks the lane ONCE per
+        signal so the eval farm and the funded farm serve the SAME lane. No account takes two of the
+        same rotation; an account waits its turn before trading again."""
+        takers = self._takers(lanes, active_lane)
         routes = []
         for a in takers:
             self._tick += 1
@@ -435,10 +458,10 @@ class EvalFarm:
     def counts(self) -> Counter:
         return Counter(a.state.value for a in self.accounts.values())
 
-    def next_signal_takers(self) -> tuple[list[str], list[str]]:
-        """The next `copies` accounts in the round-robin (the Ready bar)."""
-        takers = sorted(self._eligible(), key=lambda x: (x.last_seq, x.id))[: self.copies]
-        return [a.id for a in takers], []
+    def next_signal_takers(self, lanes=None, active_lane: int | None = None) -> tuple[list[str], list[str]]:
+        """Who would take the next signal (the dashboard's Ready bar). Mirrors _takers exactly so the
+        bar can't drift from what routing actually does."""
+        return [a.id for a in self._takers(lanes, active_lane)], []
 
     def save_state(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

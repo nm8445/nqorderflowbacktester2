@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from accounts_client import fetch_accounts, _post, send_heartbeat, ORDER_URL, FLATTEN_URL
 from eval_passer import EvalFarm, EState
 from funded_state_machine import FundedFarm, Phase as FPhase
+from lanes import LaneBook, MIN_LANES, MAX_LANES, save_books, load_books
 
 APP_PORT = 8090
 POLL_SEC = 3.0
@@ -48,6 +49,7 @@ MILK_QTY = 1           # eval-milking size: fixed 1 MNQ per strat (4-strat combi
 FORCE_CLOSE_REASONS = {"force_close", "FORCE_CLOSE", "EOD"}
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "eval_farm_state.json")
 FUNDED_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "funded_farm_state.json")
+LANES_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "lanes_state.json")
 # The live combined system (active_contract.py) writes the feed's real contract month here; we stamp
 # orders with it so the farm executes the SAME contract the data feed is on (no roll mismatch). If it's
 # missing/stale, we send the bare root and the test addon appends its own FrontMonth() — graceful.
@@ -166,6 +168,13 @@ class FarmState:
         self.farm.load_state(STATE_FILE)        # survive restarts/sleep; NT8 refreshes live numbers on sync
         self.funded = FundedFarm(quiet=True)    # gambling/milking; populated when funded accounts appear
         self.funded.load_state(FUNDED_STATE_FILE)   # restore manual phase locks + payout progress
+        # Lane rotation (see lanes.py) — TWO independent books, one per farm, so evals and fundeds
+        # rotate at their own cadence (10 eval lanes must not throttle 3 funded accounts). Both are
+        # disabled by default: with lanes off, or for any account left unassigned, routing is exactly
+        # the legacy round-robin.
+        self.lanes = LaneBook()          # evals
+        self.flanes = LaneBook()         # fundeds
+        load_books(LANES_STATE_FILE, self.lanes, self.flanes)
         self.last_flatten_date = None           # EOD sweep guard (fire once/day)
         self.last_eod_roll_date = None          # EOD brain-roll guard (fire once/day)
         self.last_strat_flatten_date = {"FB": None, "RV": None, "B2": None, "OD": None}  # per-strat FC guards
@@ -303,14 +312,17 @@ class FarmState:
                                     "plan": acct.plan, "day_cap": acct.day_cap, "target": acct.target,
                                     "total": acct.total, "true_target": acct.true_target,
                                     "peak_day": acct.peak_day_profit, "manual": acct.manual_phase,
-                                    "risk_mode": acct.risk_mode})
+                                    "risk_mode": acct.risk_mode, "lane": self.lanes.lane_of(name)})
                 live = []
                 for pat in LIVE_DISPLAY:
                     row = next((a for a in accts if pat in a["name"]), None)
                     if row:
                         live.append({"name": row["name"], "balance": row["cash"], "dd": row.get("dd", 0.0),
                                      "today": row.get("realized_today", 0.0), "connected": row.get("connected", True)})
-                leads, actives = self.farm.next_signal_takers()
+                # Preview the NEXT lane (peek — mark_served only happens on a real signal) so the Ready
+                # bar shows exactly who would trade next.
+                next_lane = self.lanes.pick(self.farm.eligible_ids()) if self.lanes.enabled else None
+                leads, actives = self.farm.next_signal_takers(self.lanes, next_lane)
                 self.farm.save_state(STATE_FILE)
                 # funded accounts -> gambling / milking sections
                 fsnap = {a["name"]: {"cash": a["cash"], "equity": a["netliq"],
@@ -371,7 +383,7 @@ class FarmState:
                                         "nt8_dd": fa.dd_remaining,
                                         "payouts": fa.payouts_done, "manual": fa.manual_phase,
                                         "risk_mode": fa.risk_mode, "reason": fa.retired_reason,
-                                        "blown": fa.manual_blown,
+                                        "blown": fa.manual_blown, "lane": self.flanes.lane_of(name),
                                         "forced": self.funded.forced_gambler_id == name})
                 plans = [{"key": k, "label": v["label"], "day_cap": v["day_cap"], "target": v["target"]}
                          for k, v in PLANS.items()]
@@ -388,7 +400,16 @@ class FarmState:
                                  "funded": funded, "funded_risk": self.funded.gamble_risk,
                                  "funded_derisk": self.funded.derisk_at, "funded_milk": self.funded.milk_qty,
                                  "funded_lock": self.funded.profit_lock,
-                                 "plans": plans, "ts": datetime.now().strftime("%H:%M:%S")}
+                                 "plans": plans, "ts": datetime.now().strftime("%H:%M:%S"),
+                                 # Two independent lane books, one per farm.
+                                 "lanes": {"enabled": self.lanes.enabled, "n": self.lanes.n_lanes,
+                                           "min": MIN_LANES, "max": MAX_LANES, "next": next_lane,
+                                           "members": self.lanes.members(list(self.farm.accounts))},
+                                 "flanes": {"enabled": self.flanes.enabled, "n": self.flanes.n_lanes,
+                                            "min": MIN_LANES, "max": MAX_LANES,
+                                            "next": (self.flanes.pick(self.funded.eligible_gambler_ids())
+                                                     if self.flanes.enabled else None),
+                                            "members": self.flanes.members(list(self.funded.accounts))}}
             # Cap force-close: close any open eval winner that would overshoot the daily cap / pass line
             # (computed under the lock, flattened here outside it to avoid holding the lock on network I/O).
             for name, unreal, room, day_cap, land in self._cap_flatten_candidates(by_name):
@@ -447,7 +468,17 @@ class FarmState:
                 return {"tpPrice": round(float(fb_tp), 2)} if fb_tp is not None else bracket()
             return bracket()   # RV native bracket == the absolute sl/tp already in bracket()
         with self.lock:
-            routes = self.farm.route_signal(strat, date.today())
+            # LANE PICK — one per book, per signal. The eval book and the funded book advance
+            # independently. A lane with nobody eligible is skipped rather than burning its turn.
+            # Milkers are never lane-gated (they copy every signal by design), so they don't vote.
+            active_lane = factive_lane = None
+            if self.lanes.enabled:
+                active_lane = self.lanes.pick(self.farm.eligible_ids())
+                self.lanes.mark_served(active_lane)
+            if self.flanes.enabled:
+                factive_lane = self.flanes.pick(self.funded.eligible_gambler_ids())
+                self.flanes.mark_served(factive_lane)
+            routes = self.farm.route_signal(strat, date.today(), self.lanes, active_lane)
         code = _active_contract_code()
         instr = lambda root: f"{root} {code}" if code else root   # stamp the feed's real contract
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -494,7 +525,7 @@ class FarmState:
             # place (route_signal optimistically marks 'gambled today' before placement — without this a
             # failed/no-fill gamble would burn the 1/day slot with no trade).
             prev_lgd = {aid: a.last_gamble_date for aid, a in self.funded.accounts.items()}
-            froutes = self.funded.route_signal(strat, date.today())
+            froutes = self.funded.route_signal(strat, date.today(), self.flanes, factive_lane)
         for r in froutes:
             if r.intent == "GAMBLE":
                 facct = self.funded.accounts.get(r.account_id)
@@ -545,6 +576,7 @@ class FarmState:
         with self.lock:
             self.farm.save_state(STATE_FILE)
             self.funded.save_state(FUNDED_STATE_FILE)
+            save_books(LANES_STATE_FILE, self.lanes, self.flanes)   # persist both rotation markers
         return placed
 
     def handle_exit(self, strat, direction, reason):
@@ -599,9 +631,53 @@ class FarmState:
                 a.last_seq = 0
                 a.day_profit = 0.0
                 a.peak_day_profit = 0.0
+            self.lanes.reset_rotation()      # lane turn order too, both books (assignments are kept)
+            self.flanes.reset_rotation()
             self.farm.save_state(STATE_FILE)
-        print("[farm] rotation reset -> last_seq/tick zeroed, day tallies cleared")
+            save_books(LANES_STATE_FILE, self.lanes, self.flanes)
+        print("[farm] rotation reset -> last_seq/tick + lane turns zeroed, day tallies cleared")
         return {"ok": True, "reset": len(self.farm.accounts)}
+
+    # ---- lanes ---------------------------------------------------------------------------------
+    # Every control takes a scope: "eval" (default) or "funded". The two books are independent —
+    # separate on/off, separate lane counts, separate turn orders.
+    def _book(self, scope):
+        return self.flanes if str(scope).lower().startswith("f") else self.lanes
+
+    def set_lanes(self, enabled=None, n_lanes=None, scope="eval"):
+        """Toggle lane routing on/off and/or set the lane count for one book. Turning lanes OFF
+        instantly reverts that farm to the legacy global round-robin; assignments are kept, so it's a
+        safe toggle."""
+        with self.lock:
+            r = self._book(scope).set_config(enabled, n_lanes)
+            save_books(LANES_STATE_FILE, self.lanes, self.flanes)
+        print(f"[farm] {scope} lanes -> enabled={r['enabled']} n_lanes={r['n_lanes']}")
+        return dict(r, scope=scope)
+
+    def set_account_lane(self, account, lane, scope="eval"):
+        """Put one account in a lane (or lane=None/0 to pull it out, back to the legacy rotation)."""
+        with self.lock:
+            r = self._book(scope).set_lane(account, lane)
+            if r.get("ok"):
+                save_books(LANES_STATE_FILE, self.lanes, self.flanes)
+        return dict(r, scope=scope)
+
+    def auto_assign_lanes(self, scope="eval"):
+        """Round-robin that farm's accounts into its lanes, filling the emptiest lanes first and
+        leaving already-assigned accounts where they are."""
+        with self.lock:
+            ids = list(self.funded.accounts) if str(scope).lower().startswith("f") else list(self.farm.accounts)
+            r = self._book(scope).auto_assign(ids)
+            save_books(LANES_STATE_FILE, self.lanes, self.flanes)
+        print(f"[farm] {scope} lanes auto-assign -> {r['assigned']} account(s) across {r['n_lanes']} lanes")
+        return dict(r, scope=scope)
+
+    def clear_lanes(self, scope="eval"):
+        with self.lock:
+            r = self._book(scope).clear()
+            save_books(LANES_STATE_FILE, self.lanes, self.flanes)
+        print(f"[farm] {scope} lanes cleared ({r['cleared']} assignments removed)")
+        return dict(r, scope=scope)
 
     @staticmethod
     def _apply_plan(acct, plan_key):
@@ -856,6 +932,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True, "placed": placed}))
         elif self.path == "/api/reset_rotation":
             self._send(200, json.dumps(STATE.reset_rotation()))
+        elif self.path == "/api/set_lanes":
+            n = int(self.headers.get("Content-Length", 0))
+            p = json.loads(self.rfile.read(n).decode() if n else "{}")
+            self._send(200, json.dumps(STATE.set_lanes(p.get("enabled"), p.get("n_lanes"),
+                                                       p.get("scope", "eval"))))
+        elif self.path == "/api/set_account_lane":
+            n = int(self.headers.get("Content-Length", 0))
+            p = json.loads(self.rfile.read(n).decode() if n else "{}")
+            self._send(200, json.dumps(STATE.set_account_lane(p.get("account", ""), p.get("lane"),
+                                                              p.get("scope", "eval"))))
+        elif self.path == "/api/auto_assign_lanes":
+            n = int(self.headers.get("Content-Length", 0))
+            p = json.loads(self.rfile.read(n).decode() if n else "{}")
+            self._send(200, json.dumps(STATE.auto_assign_lanes(p.get("scope", "eval"))))
+        elif self.path == "/api/clear_lanes":
+            n = int(self.headers.get("Content-Length", 0))
+            p = json.loads(self.rfile.read(n).decode() if n else "{}")
+            self._send(200, json.dumps(STATE.clear_lanes(p.get("scope", "eval"))))
         elif self.path == "/api/flatten":
             n = int(self.headers.get("Content-Length", 0))
             p = json.loads(self.rfile.read(n).decode() if n else "{}")
@@ -941,6 +1035,35 @@ HTML = """<!doctype html><html><head><meta charset="utf-8"><title>NQ Farm</title
     <button onclick="resetRotation()" class="px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 font-semibold" title="zero last_seq/tick + clear day tallies after test fires (cash/equity untouched, NT8 re-syncs)">Reset rotation</button>
     <span id="fResult" class="text-slate-400"></span>
   </div>
+  <div class="mb-6 p-3 rounded-lg bg-slate-800 border border-violet-800">
+    <div class="text-xs uppercase tracking-wide text-violet-400 mb-2">Lane routing
+      <span class="text-slate-500 normal-case tracking-normal">· one signal → one lane, whole lane trades together · eval and funded rotate independently · off = legacy round-robin, and unassigned accounts always use it</span></div>
+    <div class="flex items-center gap-4 flex-wrap">
+      <label class="text-sm flex items-center gap-2 font-semibold text-violet-300">
+        <input id="lnOn" type="checkbox" onchange="setLanes({enabled:this.checked},'eval')" class="accent-violet-500">
+        Evals
+      </label>
+      <label class="text-sm text-slate-400 flex items-center gap-2">lanes
+        <select id="lnN" onchange="setLanes({n_lanes:parseInt(this.value)},'eval')" class="bg-slate-700 rounded px-2 py-1 text-sm" title="Number of de-correlated eval groups."></select>
+      </label>
+      <button onclick="autoAssignLanes('eval')" class="px-3 py-1 rounded bg-violet-700 hover:bg-violet-600 text-sm font-semibold" title="round-robin every unassigned eval account across the eval lanes">Auto-assign</button>
+      <button onclick="clearLanes('eval')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-sm">Clear</button>
+    </div>
+    <div id="laneView" class="mt-2"></div>
+    <div class="flex items-center gap-4 flex-wrap mt-4 pt-3 border-t border-slate-700">
+      <label class="text-sm flex items-center gap-2 font-semibold text-amber-300">
+        <input id="flnOn" type="checkbox" onchange="setLanes({enabled:this.checked},'funded')" class="accent-amber-500">
+        Fundeds
+      </label>
+      <label class="text-sm text-slate-400 flex items-center gap-2">lanes
+        <select id="flnN" onchange="setLanes({n_lanes:parseInt(this.value)},'funded')" class="bg-slate-700 rounded px-2 py-1 text-sm" title="Number of de-correlated funded groups. Gamblers only — milkers copy every signal regardless."></select>
+      </label>
+      <button onclick="autoAssignLanes('funded')" class="px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-sm font-semibold" title="round-robin every unassigned funded account across the funded lanes">Auto-assign</button>
+      <button onclick="clearLanes('funded')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-sm">Clear</button>
+      <span class="text-xs text-slate-500">gamblers only · milkers always copy every signal</span>
+    </div>
+    <div id="flaneView" class="mt-2"></div>
+  </div>
   <h2 class="text-lg font-semibold mb-2 text-slate-300">Eval accounts
     <span class="text-slate-500 text-sm">(farm-traded · drag a card to another plan, or use its dropdown)</span></h2>
   <div id="evalSections" class="mb-6"></div>
@@ -1022,11 +1145,69 @@ function evalCard(a, plans){
       </div>
       <div class="flex flex-wrap gap-1 mt-2">${evalActions(a)}</div>
       <select onchange="setPlan('${a.name}', this.value)" class="mt-2 w-full bg-slate-700 rounded px-1 py-1 text-xs">${opts}</select>
+      ${laneSel(a,'eval')}
     </div>`;
 }
 async function setPlan(acct, plan){
   await fetch('/api/set_plan',{method:'POST',body:JSON.stringify({account:acct, plan})});
   tick();
+}
+// ---- lanes (two independent books: 'eval' and 'funded') ----
+const BLANK = {enabled:false, n:10, min:2, max:20, next:null, members:{}};
+let LN = Object.assign({}, BLANK), FLN = Object.assign({}, BLANK);
+const book = s => s==='funded' ? FLN : LN;
+async function setLanes(body, scope){
+  await fetch('/api/set_lanes',{method:'POST',body:JSON.stringify(Object.assign({scope}, body))});
+  tick();
+}
+async function setAcctLane(acct, lane, scope){
+  await fetch('/api/set_account_lane',{method:'POST',body:JSON.stringify({account:acct, scope, lane:lane===''?null:parseInt(lane)})});
+  tick();
+}
+async function autoAssignLanes(scope){
+  await fetch('/api/auto_assign_lanes',{method:'POST',body:JSON.stringify({scope})});
+  tick();
+}
+async function clearLanes(scope){
+  if(!confirm('Clear every '+scope+' lane assignment? Those accounts fall back to the global round-robin.')) return;
+  await fetch('/api/clear_lanes',{method:'POST',body:JSON.stringify({scope})});
+  tick();
+}
+// Lane dropdown for a card. Greyed when that book is off, so you can pre-build the layout first.
+function laneSel(a, scope){
+  const B = book(scope), tint = scope==='funded' ? 'bg-amber-900' : 'bg-violet-900';
+  let o = `<option value="" ${a.lane==null?'selected':''}>no lane</option>`;
+  for(let i=1;i<=B.n;i++) o += `<option value="${i}" ${a.lane===i?'selected':''}>lane ${i}</option>`;
+  return `<select onchange="setAcctLane('${a.name}', this.value, '${scope}')" title="which de-correlated lane this account trades in"
+     class="mt-2 w-full rounded px-1 py-1 text-xs ${B.enabled?tint:'bg-slate-700 text-slate-400'}">${o}</select>`;
+}
+// Renders one book's lane strip into `el`.
+function renderLanes(el, B, scope){
+  const on = scope==='funded' ? 'border-amber-400 bg-amber-900/60' : 'border-violet-400 bg-violet-900/60';
+  const txt = scope==='funded' ? 'text-amber-200' : 'text-violet-200';
+  document.getElementById(el).innerHTML = !B.enabled
+    ? `<div class="text-xs text-slate-500">${scope} lanes off — global round-robin</div>`
+    : `<div class="flex flex-wrap gap-2">`+
+      Object.keys(B.members||{}).sort((a,b)=>a-b).map(k=>{
+        const mem = B.members[k]||[], nx = String(B.next)===String(k);
+        return `<div class="rounded px-2 py-1 text-xs border ${nx?on:'border-slate-700 bg-slate-900/60'}">
+          <span class="font-semibold ${nx?txt:'text-slate-400'}">lane ${k}${nx?' · next':''}</span>
+          <span class="text-slate-300">${mem.length? mem.join(', ') : '<span class="text-slate-600">empty</span>'}</span></div>`;
+      }).join('')+`</div>`;
+}
+// Syncs one book's checkbox + lane-count dropdown (without stomping an open dropdown).
+function syncLaneCtl(cbId, selId, B, scope){
+  const cb = document.getElementById(cbId);
+  if(cb && document.activeElement!==cb) cb.checked = !!B.enabled;
+  const sel = document.getElementById(selId);
+  if(sel){
+    if(sel.options.length !== (B.max-B.min+1)){
+      let o='';
+      for(let i=B.min;i<=B.max;i++) o += `<option value="${i}">${i}</option>`;
+      sel.innerHTML = o;
+    }
+    if(document.activeElement!==sel) sel.value = String(B.n);
+  }
 }
 async function setPhase(acct, phase){
   await fetch('/api/set_funded_phase',{method:'POST',body:JSON.stringify({account:acct, phase})});
@@ -1079,8 +1260,14 @@ function evalActions(a){
 }
 function riskBtns(a){
   const m = a.risk_mode||'auto';
-  const b = (val,lbl)=>`<button onclick="setRiskMode('${a.name}','${val}')" class="text-xs px-1.5 py-0.5 rounded ${m===val?'bg-indigo-600':'bg-slate-700 hover:bg-slate-600'}" title="risk tier">${lbl}</button>`;
-  return b('auto','Auto')+b('750','$750')+b('1500','$1500');
+  // The 'full' tier resolves to the ACCOUNT'S OWN day_cap (= consistency x target), not a literal
+  // $1500 — a Tradeify 40% account risks $1,200. Label it with the real number so the button can't
+  // lie; the mode value stays '1500' because that's the backend's name for the full tier.
+  const full = a.day_cap || 1500;
+  const b = (val,lbl,tip)=>`<button onclick="setRiskMode('${a.name}','${val}')" class="text-xs px-1.5 py-0.5 rounded ${m===val?'bg-indigo-600':'bg-slate-700 hover:bg-slate-600'}" title="${tip}">${lbl}</button>`;
+  return b('auto','Auto','$750 while remaining DD < $2k, else full')
+       + b('750','$750','force the tight tier')
+       + b('1500', money(full), 'force full risk = this plan&#39;s daily cap');
 }
 function blownBtn(a){
   return `<button onclick="markBlown('${a.name}')" class="text-xs px-1.5 py-0.5 rounded bg-rose-900 hover:bg-rose-800" title="firm force-closed -> mark blown (sticky)">blown</button>`;
@@ -1135,8 +1322,15 @@ async function tick(){
   else { conn.textContent='Addon unreachable :8082'; conn.className='px-3 py-1 rounded-full text-sm bg-rose-600'; }
   document.getElementById('counts').innerHTML = Object.entries(s.counts||{}).map(([k,v])=>
     `<span class="px-2 py-1 rounded ${C[k]||'bg-slate-700'}">${k} ${v}</span>`).join('');
+  LN = s.lanes || LN; FLN = s.flanes || FLN;
+  syncLaneCtl('lnOn','lnN', LN, 'eval');
+  syncLaneCtl('flnOn','flnN', FLN, 'funded');
+  renderLanes('laneView', LN, 'eval');
+  renderLanes('flaneView', FLN, 'funded');
   const r = s.ready || {leads:[], actives:[], copies:1};
-  const label = r.copies>1 ? `copy ${r.copies} (round-robin, ${r.copies} at a time)` : 'de-correlated (1 account)';
+  const label = LN.enabled
+    ? `lane ${LN.next==null?'—':LN.next} of ${LN.n} (whole lane trades together)`
+    : (r.copies>1 ? `copy ${r.copies} (round-robin, ${r.copies} at a time)` : 'de-correlated (1 account)');
   const mr = s.milkers_ready || [];
   document.getElementById('ready').innerHTML =
     `<div class="text-xs uppercase tracking-wide text-sky-400 mb-1">Ready for next signal - ${label}</div>`+
@@ -1209,7 +1403,8 @@ async function tick(){
       `<div class="text-sm text-slate-200 mt-1">bal ${money(a.balance)}</div>`+
       `<div class="text-xs text-slate-400">buffer ${money(a.buffer)} <span class="text-slate-500" title="raw NT8 TrailingMaxDrawdown — trails intraday netliq, unreliable; the buffer left of this is the true EOD-trailing value">(nt8 ${a.nt8_dd==null?'—':money(a.nt8_dd)})</span> · payouts ${a.payouts}</div>`+
       `<div class="flex flex-wrap gap-1 mt-2">${toggle}${gnext}${auto}</div>`+
-      `<div class="flex flex-wrap gap-1 mt-2">${evalActions(a)}</div></div>`;
+      `<div class="flex flex-wrap gap-1 mt-2">${evalActions(a)}</div>`+
+      laneSel(a,'funded')+`</div>`;
   };
   document.getElementById('gambling').innerHTML = (f.gambling||[]).length ? f.gambling.map(a=>fcard(a,'border-amber-700',true)).join('') : '<div class="text-slate-500 col-span-3">no gambling accounts yet</div>';
   document.getElementById('milking').innerHTML = (f.milking||[]).length ? f.milking.map(a=>fcard(a,'border-emerald-700',false)).join('') : '<div class="text-slate-500 col-span-3">no milking accounts yet</div>';

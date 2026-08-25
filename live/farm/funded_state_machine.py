@@ -229,16 +229,21 @@ class FundedFarm:
                       f"-> re-gamble (avoid {strat})")
 
     # -- route one signal ----------------------------------------------------------------------
-    def route_signal(self, strat: str, today: date) -> list[Route]:
+    def route_signal(self, strat: str, today: date, lanes=None,
+                     active_lane: int | None = None) -> list[Route]:
         """Called each time a signal fires. EVERY milker copies EVERY signal at 1 MNQ — milking runs the
         full 4-way combined concurrently (one open trade per active strat, all milkers copy the same set),
         so milkers are NOT gated by busy_ids (that one-trade-at-a-time gate is for GAMBLERS only, which
-        take a single de-correlated signal). At most ONE eligible gambler takes each signal."""
+        take a single de-correlated signal).
+
+        LANES OFF: at most ONE eligible gambler takes each signal (legacy round-robin).
+        LANES ON: every eligible gambler in the ACTIVE LANE takes it, plus the legacy single pick among
+        gamblers with no lane assigned. `active_lane` is chosen by FarmState so evals and fundeds in the
+        same lane trade together. MILKERS ARE NEVER LANE-GATED — milking is correlated on purpose."""
         routes = [Route(a.id, strat, "MILK", "1MNQ")
                   for a in self.accounts.values()
                   if a.phase is Phase.MILKING]
-        g = self._next_gambler(strat, today)
-        if g is not None:
+        for g in self._gamblers_for(strat, today, lanes, active_lane):
             self._tick += 1
             g.last_seq = self._tick          # advance the round-robin marker
             g.last_gamble_date = today
@@ -247,12 +252,37 @@ class FundedFarm:
                       f"MILK->{sum(1 for r in routes if r.intent=='MILK')} accts")
         return routes
 
-    def _next_gambler(self, strat: str, today: date) -> FundedAccount | None:
+    def eligible_gambler_ids(self) -> list[str]:
+        """Gambling accounts that could take a signal now — FarmState needs these for the lane pick."""
+        return [a.id for a in self._gamble_candidates()]
+
+    def _gamble_candidates(self) -> list[FundedAccount]:
+        return [a for a in self.accounts.values()
+                if a.phase is Phase.GAMBLING and a.buffer > 0 and a.id not in self.busy_ids]
+
+    def _gamblers_for(self, strat: str, today: date, lanes=None,
+                      active_lane: int | None = None) -> list[FundedAccount]:
+        """The gambler(s) taking this signal. Lanes off -> the legacy single pick. Lanes on -> the whole
+        active lane + the legacy single pick among unassigned gamblers."""
+        if lanes is None or not lanes.enabled:
+            g = self._next_gambler(strat, today)
+            return [g] if g is not None else []
+        cands = self._gamble_candidates()
+        picked = [a for a in cands if active_lane is not None and lanes.lane_of(a.id) == active_lane]
+        loose = [a for a in cands if lanes.lane_of(a.id) is None]
+        if loose:
+            g = self._next_gambler(strat, today, pool=loose)
+            if g is not None and g not in picked:
+                picked.append(g)
+        return picked
+
+    def _next_gambler(self, strat: str, today: date,
+                      pool: list[FundedAccount] | None = None) -> FundedAccount | None:
         """Eval-style round-robin: the next least-recently-gambled GAMBLING account with buffer takes
         the signal. NO 1/day limit — an account keeps gambling (accumulating toward its de-risk buffer)
-        until it de-risks to MILKING or blows. A 'gamble next' forced pick wins if it's still eligible."""
-        cands = [a for a in self.accounts.values()
-                 if a.phase is Phase.GAMBLING and a.buffer > 0 and a.id not in self.busy_ids]
+        until it de-risks to MILKING or blows. A 'gamble next' forced pick wins if it's still eligible.
+        `pool` narrows the candidates (lanes mode passes only the unassigned gamblers)."""
+        cands = self._gamble_candidates() if pool is None else list(pool)
         if not cands:
             return None
         if self.forced_gambler_id:
