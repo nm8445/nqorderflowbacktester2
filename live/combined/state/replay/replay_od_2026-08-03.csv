@@ -1,0 +1,2 @@
+entry_ts,direction,entry,exit_ts,exit,reason,qty
+2026-08-02 19:00:00-04:00,LONG,28561.0,2026-08-02 23:40:00-04:00,28670.0,TP_GREEN,1

@@ -1,0 +1,2 @@
+entry_ts,direction,entry,exit_ts,exit,reason,qty
+2026-07-28 13:20:00-04:00,LONG,27993.25,2026-07-28 16:20:00-04:00,27948.0,FORCE_CLOSE,1

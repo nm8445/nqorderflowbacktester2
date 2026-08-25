@@ -1,0 +1,32 @@
+=== MENTHORQ-STYLE GAMMA LEVELS  2026-08-14 (Fri) ===
+  Window: 1D Expected Move = spot * ATM_IV * sqrt(1/252)
+  Score:  |Net GEX| + spot * |Net DEX|  (excludes CR and PS strikes)
+  HVL:    cumulative GEX zero-crossing within +/-5% of spot
+  QQQ ratio: 41.300  |  NDX-NQ basis: +100.0
+
+--- QQQ ---
+  spot:             731.07    NQ-equiv: 30193.19    (NQ = QQQ * 41.300)
+  ATM IV:           0.0876
+  1D Expected Move: +/- 4.03    window: [727.04, 735.10]
+  HVL:              K=760.0  NQ=31388
+  HVL 0DTE:         K=730.0  NQ=30149
+  Call Resistance:  K=735.0  NQ=30355  (calls-only gex +9.98e+10)
+  Put Support:      K=730.0  NQ=30149  (puts-only gex -1.49e+11)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):
+    GEX_1   K=   732.0  NQ=   30232  gex=-6.63e+10  net_dex=-3.30e+08  call_dex=+0.00e+00  put_dex=-3.30e+08
+    GEX_2   K=   731.0  NQ=   30190  gex=-1.05e+11  net_dex=+1.97e+07  call_dex=+1.29e+08  put_dex=-1.10e+08
+    GEX_3   K=   728.0  NQ=   30066  gex=+1.13e+10  net_dex=+1.72e+08  call_dex=+1.72e+08  put_dex=-1.91e+05
+    GEX_4   K=   732.5  NQ=   30252  gex=-1.82e+10  net_dex=-1.34e+08  call_dex=+1.98e+05  put_dex=-1.34e+08
+    GEX_5   K=   729.0  NQ=   30108  gex=+0.00e+00  net_dex=+1.78e+08  call_dex=+1.78e+08  put_dex=+0.00e+00
+    GEX_6   K=   733.0  NQ=   30273  gex=+2.60e+07  net_dex=-1.53e+08  call_dex=+0.00e+00  put_dex=-1.53e+08
+    GEX_7   K=   727.5  NQ=   30046  gex=-1.29e+07  net_dex=+1.44e+08  call_dex=+1.44e+08  put_dex=+0.00e+00
+
+--- NDX (NDX + NDXP combined) ---
+  spot:             30078.24    NQ-equiv: 30178.24    (NQ = NDX + 100.0)
+  ATM IV:           0.0867
+  1D Expected Move: +/- 164.36    window: [29913.89, 30242.60]
+  HVL:              K=30000.0  NQ=30100
+  HVL 0DTE:         --
+  Call Resistance:  K=30100.0  NQ=30200  (calls-only gex +3.94e+10)
+  Put Support:      K=30000.0  NQ=30100  (puts-only gex -1.23e+10)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):

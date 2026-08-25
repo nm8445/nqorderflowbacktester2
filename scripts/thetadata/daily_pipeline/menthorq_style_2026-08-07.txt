@@ -1,0 +1,33 @@
+=== MENTHORQ-STYLE GAMMA LEVELS  2026-08-07 (Fri) ===
+  Window: 1D Expected Move = spot * ATM_IV * sqrt(1/252)
+  Score:  |Net GEX| + spot * |Net DEX|  (excludes CR and PS strikes)
+  HVL:    cumulative GEX zero-crossing within +/-5% of spot
+  QQQ ratio: 41.300  |  NDX-NQ basis: +100.0
+
+--- QQQ ---
+  spot:             723.03    NQ-equiv: 29861.14    (NQ = QQQ * 41.300)
+  ATM IV:           0.1224
+  1D Expected Move: +/- 5.57    window: [717.46, 728.60]
+  HVL:              K=730.0  NQ=30149
+  HVL 0DTE:         K=700.0  NQ=28910
+  Call Resistance:  K=725.0  NQ=29942  (calls-only gex +3.48e+10)
+  Put Support:      K=723.0  NQ=29860  (puts-only gex -5.08e+10)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):
+    GEX_1   K=   720.0  NQ=   29736  gex=+7.90e+10  net_dex=+1.19e+09  call_dex=+1.19e+09  put_dex=-2.65e+05
+    GEX_2   K=   722.0  NQ=   29819  gex=-1.22e+10  net_dex=+5.22e+08  call_dex=+5.27e+08  put_dex=-4.75e+06
+    GEX_3   K=   721.0  NQ=   29777  gex=+1.13e+10  net_dex=+2.81e+08  call_dex=+2.81e+08  put_dex=+0.00e+00
+    GEX_4   K=   718.0  NQ=   29653  gex=+0.00e+00  net_dex=+3.25e+08  call_dex=+3.25e+08  put_dex=+0.00e+00
+    GEX_5   K=   727.0  NQ=   30025  gex=-2.42e+09  net_dex=-1.54e+08  call_dex=+0.00e+00  put_dex=-1.54e+08
+    GEX_6   K=   719.0  NQ=   29695  gex=+0.00e+00  net_dex=+1.79e+08  call_dex=+1.79e+08  put_dex=+0.00e+00
+    GEX_7   K=   724.0  NQ=   29901  gex=-4.36e+09  net_dex=-4.68e+07  call_dex=+0.00e+00  put_dex=-4.68e+07
+    GEX_8   K=   728.0  NQ=   30066  gex=-1.37e+08  net_dex=-8.55e+06  call_dex=+0.00e+00  put_dex=-8.55e+06
+
+--- NDX (NDX + NDXP combined) ---
+  spot:             29740.64    NQ-equiv: 29840.64    (NQ = NDX + 100.0)
+  ATM IV:           0.1214
+  1D Expected Move: +/- 227.44    window: [29513.19, 29968.08]
+  HVL:              K=29400.0  NQ=29500
+  HVL 0DTE:         --
+  Call Resistance:  K=29800.0  NQ=29900  (calls-only gex +4.21e+10)
+  Put Support:      K=29700.0  NQ=29800  (puts-only gex -5.36e+09)
+  GEX 1..10  (0-1 DTE chain, within 1D EM, top combined |Net GEX|+|Net DEX|, excl CR & PS):

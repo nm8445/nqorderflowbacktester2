@@ -19,7 +19,7 @@ import pandas as pd
 BASE = "http://127.0.0.1:25503/v3"
 OUT_ROOT = Path("D:/trading_pythonbacktest_data/QQQ_thetadata")
 START = dt.date(2020, 12, 1)
-END   = dt.date(2026, 7, 22)  # auto-updated by run_daily.py
+END   = dt.date(2026, 8, 25)  # auto-updated by run_daily.py
 TIMEOUT = 90.0
 MAX_RETRIES = 3
 
